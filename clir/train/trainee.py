@@ -17,7 +17,7 @@ from transformers import BertModel
 # from clir.models import BertWithCustomEmbedding
 
 from ..data.loading import get_pretrained
-from .optim import LinearLRWithWarmup
+from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss
 from .metrics import *
 
 class Trainee(pl.LightningModule):
@@ -39,8 +39,8 @@ class Trainee(pl.LightningModule):
     output_cpu: bool, optional
     """
     def __init__(self, *args, freeze_regex=None, gradient_checkpointing=False,
-                 warmup_steps=0, lr=2e-5, betas=(0.9, 0.999), eps=1e-08, 
-                 weight_decay=0.0, **kwargs):
+                 warmup_steps=0, lr_scheduler="linear", sqrt_lr_update_factor=100, lr=2e-5, betas=(0.9, 0.999), eps=1e-08, 
+                 weight_decay=0.0, label_smoothing=0.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.freeze_regex = freeze_regex
         self.gradient_checkpointing = gradient_checkpointing
@@ -48,6 +48,8 @@ class Trainee(pl.LightningModule):
         
         # scheduling and optimization
         self.warmup_steps = warmup_steps
+        # self.lr_scheduler = lr_scheduler
+        # self.sqrt_lr_update_factor = sqrt_lr_update_factor
         self.lr = lr
         self.betas = betas
         self.eps = eps
@@ -57,6 +59,7 @@ class Trainee(pl.LightningModule):
             InBatchAccuracy(),
             InBatchMRR()
         ])
+        # self.label_smoothing = label_smoothing
         
     # should be called at the end of each subclass __init__
     def post_init(self):
@@ -161,6 +164,18 @@ class Trainee(pl.LightningModule):
             optimizer,
             warmup_steps=self.warmup_steps, total_steps=total_steps
         )
+        # if self.lr_scheduler == "linear":
+        #     scheduler = LinearLRWithWarmup(
+        #         optimizer,
+        #         warmup_steps=self.warmup_steps, total_steps=total_steps
+        #     )
+        # elif self.lr_scheduler == "isqrt":
+        #     scheduler = InverseSqrtLRWithWarmup(
+        #         optimizer,
+        #         warmup_steps=self.warmup_steps, total_steps=total_steps, update_factor=self.sqrt_lr_update_factor
+        #     )
+        # else:
+        #     ValueError(f"Wrong scheduler name choice: {self.lr_scheduler}. Available: linear, isqrt")
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return [optimizer], [scheduler]
         
@@ -234,6 +249,10 @@ class BiEncoder(Trainee):
         # loss and metrics
         self.log_softmax = nn.LogSoftmax(1)
         self.loss_fct = nn.NLLLoss(reduction='mean')
+        # if self.label_smoothing < 1e-4:
+        #     self.loss_fct = nn.NLLLoss(reduction='mean')
+        # else:
+        #     self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
         
         self.post_init()
 
@@ -296,7 +315,7 @@ class BiEncoder(Trainee):
         assert similarities.size(0) == similarities.size(1)
         log_probs = self.log_softmax(similarities)
 
-        loss = self.loss_fct(log_probs, torch.arange(len(similarities), device=similarities.device))
+        loss = self.loss_fct(log_probs, torch.arange(len(log_probs), device=log_probs.device))
         return dict(loss=loss, log_probs=log_probs)
                     
     def eval_step(self, inputs, batch_idx):
