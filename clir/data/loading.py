@@ -18,8 +18,8 @@ ClassModel = BertModel
 def get_pretrained(pretrained_model_name_or_path, **kwargs):
     if pretrained_model_name_or_path is None:
         # print("kwargs", kwargs)
-        print(ClassModel.config_class())
-        print(ClassModel.config_class(**kwargs))
+        # print(ClassModel.config_class())
+        # print(ClassModel.config_class(**kwargs))
         model = ClassModel(ClassModel.config_class(**kwargs))
         print(f"Randomly initialized model:\n{model}")
     else:

@@ -76,7 +76,8 @@ class Trainee(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         """Step and log training metrics"""
         outputs = self.step(batch, batch_idx)
-        self.log("train/loss", outputs['loss'])
+        bsz = batch["nsentences"] if "nsentences" in batch else None
+        self.log("train/loss", outputs['loss'], batch_size=bsz)
         # for name, tensor in self.weights_to_log.items():
         #     self.log(f"weights/{name}", tensor.cpu().detach().item())
 
@@ -85,29 +86,39 @@ class Trainee(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """Step and log validation metrics"""
         outputs = self.eval_step(batch, batch_idx)
-        self.log("eval/loss", outputs['loss'])
+        bsz = batch["nsentences"] if "nsentences" in batch else None
+        self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
         return outputs
     
     def test_step(self, batch, batch_idx):
         """Step and log test metrics"""
         outputs = self.eval_step(batch, batch_idx)
-        self.log("test/loss", outputs['loss'])
+        bsz = batch["nsentences"] if "nsentences" in batch else None
+        self.log("test/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
         return outputs
     
-    def eval_epoch_end(self, eval_outputs):
+    def eval_epoch_end(self, *args, **kwargs):
         warnings.warn("eval_epoch_end is not implemented.")
         return {}
     
     def on_validation_epoch_end(self, *args, **kwargs):
         """eval_epoch_end and log"""
-        loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
-        self.log(f"eval/loss", loss)
+        ...
+        # print(self.validation_step_outputs)
+        # import sys
+        # sys.exit(8)
+        # try:
+        #     loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
+        #     self.log(f"eval/loss", loss)
+        # except:
+        #     pass
             
     def on_test_epoch_end(self, *args, **kwargs):
         """eval_epoch_end and log"""
-        loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
-        log_dir = Path(self.trainer.log_dir)
-        self.log(f"test/loss", loss)
+        ...
+        # loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
+        # log_dir = Path(self.trainer.log_dir)
+        # self.log(f"test/loss", loss)
                     
     def freeze(self, regex):
         """
