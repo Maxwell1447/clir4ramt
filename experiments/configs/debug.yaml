@@ -7,10 +7,7 @@ trainer:
   num_nodes: 1
   precision: 32
   logger: true
-  callbacks:
-  - class_path: pytorch_lightning.callbacks.LearningRateMonitor
-    init_args:
-      logging_interval: epoch
+  callbacks: null
   fast_dev_run: false
   max_epochs: 53
   min_epochs: 1
@@ -54,15 +51,12 @@ model:
     freeze_regex: null
     gradient_checkpointing: false
     warmup_steps: 0
-    lr_scheduler: linear
-    sqrt_lr_update_factor: 100
     lr: 2.0e-05
     betas:
     - 0.9
     - 0.999
     eps: 1.0e-08
     weight_decay: 0.0
-    label_smoothing: 0.0
 data:
   class_path: clir.train.data.DataModuleMMap
   init_args:
