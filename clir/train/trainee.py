@@ -48,8 +48,8 @@ class Trainee(pl.LightningModule):
         
         # scheduling and optimization
         self.warmup_steps = warmup_steps
-        # self.lr_scheduler = lr_scheduler
-        # self.sqrt_lr_update_factor = sqrt_lr_update_factor
+        self.lr_scheduler = lr_scheduler
+        self.sqrt_lr_update_factor = sqrt_lr_update_factor
         self.lr = lr
         self.betas = betas
         self.eps = eps
@@ -59,7 +59,7 @@ class Trainee(pl.LightningModule):
             InBatchAccuracy(),
             InBatchMRR()
         ])
-        # self.label_smoothing = label_smoothing
+        self.label_smoothing = label_smoothing
         
     # should be called at the end of each subclass __init__
     def post_init(self):
@@ -85,8 +85,6 @@ class Trainee(pl.LightningModule):
         outputs = self.step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("train/loss", outputs['loss'], batch_size=bsz)
-        # for name, tensor in self.weights_to_log.items():
-        #     self.log(f"weights/{name}", tensor.cpu().detach().item())
 
         return outputs
     
@@ -95,10 +93,7 @@ class Trainee(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
-        # metrics = batch_metrics(outputs['log_probs'])
         self.metrics(outputs['log_probs'])
-        # for key in metrics:
-        #     self.log(f"eval/{key}", metrics[key], batch_size=bsz, sync_dist=True)
         self.log_dict(self.metrics, on_step=False, on_epoch=True)
         return outputs
     
@@ -116,25 +111,6 @@ class Trainee(pl.LightningModule):
         warnings.warn("eval_epoch_end is not implemented.")
         return {}
     
-    def on_validation_epoch_end(self, *args, **kwargs):
-        """eval_epoch_end and log"""
-        ...
-        # print(self.validation_step_outputs)
-        # import sys
-        # sys.exit(8)
-        # try:
-        #     loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
-        #     self.log(f"eval/loss", loss)
-        # except:
-        #     pass
-            
-    def on_test_epoch_end(self, *args, **kwargs):
-        """eval_epoch_end and log"""
-        ...
-        # loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
-        # log_dir = Path(self.trainer.log_dir)
-        # self.log(f"test/loss", loss)
-                    
     def freeze(self, regex):
         """
         Overrides freeze to freeze only parameters that match the regex.
@@ -160,22 +136,18 @@ class Trainee(pl.LightningModule):
         # so if you want to keep training by increasing total_steps, 
         # your LR will be 0 if the ckpt reached the previously set total_steps
         total_steps=self.trainer.estimated_stepping_batches
-        scheduler = LinearLRWithWarmup(
-            optimizer,
-            warmup_steps=self.warmup_steps, total_steps=total_steps
-        )
-        # if self.lr_scheduler == "linear":
-        #     scheduler = LinearLRWithWarmup(
-        #         optimizer,
-        #         warmup_steps=self.warmup_steps, total_steps=total_steps
-        #     )
-        # elif self.lr_scheduler == "isqrt":
-        #     scheduler = InverseSqrtLRWithWarmup(
-        #         optimizer,
-        #         warmup_steps=self.warmup_steps, total_steps=total_steps, update_factor=self.sqrt_lr_update_factor
-        #     )
-        # else:
-        #     ValueError(f"Wrong scheduler name choice: {self.lr_scheduler}. Available: linear, isqrt")
+        if self.lr_scheduler == "linear":
+            scheduler = LinearLRWithWarmup(
+                optimizer,
+                warmup_steps=self.warmup_steps, total_steps=total_steps
+            )
+        elif self.lr_scheduler == "isqrt":
+            scheduler = InverseSqrtLRWithWarmup(
+                optimizer,
+                warmup_steps=self.warmup_steps, total_steps=total_steps, update_factor=self.sqrt_lr_update_factor
+            )
+        else:
+            raise ValueError(f"Wrong scheduler name choice: {self.lr_scheduler}. Available: linear, isqrt")
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return [optimizer], [scheduler]
         
@@ -248,11 +220,10 @@ class BiEncoder(Trainee):
         
         # loss and metrics
         self.log_softmax = nn.LogSoftmax(1)
-        self.loss_fct = nn.NLLLoss(reduction='mean')
-        # if self.label_smoothing < 1e-4:
-        #     self.loss_fct = nn.NLLLoss(reduction='mean')
-        # else:
-        #     self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
+        if self.label_smoothing < 1e-4:
+            self.loss_fct = nn.NLLLoss(reduction='mean')
+        else:
+            self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
         
         self.post_init()
 

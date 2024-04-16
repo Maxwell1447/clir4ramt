@@ -12,7 +12,7 @@ trainer:
     init_args:
       logging_interval: epoch
   fast_dev_run: false
-  max_epochs: 53
+  max_epochs: 20
   min_epochs: 1
   max_steps: -1
   min_steps: null
@@ -53,16 +53,16 @@ model:
     type_vocab_size: 1
     freeze_regex: null
     gradient_checkpointing: false
-    warmup_steps: 0
-    lr_scheduler: linear
-    sqrt_lr_update_factor: 100
+    warmup_steps: 50
+    lr_scheduler: isqrt
+    sqrt_lr_update_factor: 5
     lr: 2.0e-05
     betas:
     - 0.9
     - 0.999
     eps: 1.0e-08
     weight_decay: 0.0
-    label_smoothing: 0.0
+    label_smoothing: 0.1
 data:
   class_path: clir.train.data.DataModuleMMap
   init_args:
