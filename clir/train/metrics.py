@@ -1,4 +1,6 @@
 """Metrics to be used in trainer."""
+
+import torch
 # import warnings
 # from collections import Counter
 
@@ -14,22 +16,21 @@
 #     return metrics
 
 
-# def batch_retrieval(log_probs):
-#     mrr, hits_at_1, ignored_predictions = 0, 0, 0
-#     batch_size, _ = log_probs.shape
-#     # use argsort to rank the passages w.r.t. their log-probability (`-` to sort in desc. order)
-#     rankings = (-log_probs).argsort(axis=1)
-#     for ranking, label in zip(rankings, labels):
-#         if label == ignore_index:
-#             ignored_predictions += 1
-#             continue
-#         if ranking[0] == label:
-#             hits_at_1 += 1
-#         # +1 to count from 1 instead of 0
-#         rank = (ranking == label).nonzero()[0].item() + 1
-#         mrr += 1/rank    
-#     return {"MRR@N*M": mrr, "hits@1": hits_at_1, 
-#             "ignored_predictions": ignored_predictions, "batch_size": batch_size}
+def batch_metrics(log_probs):
+    bsz, _ = log_probs.shape
+    # use argsort to rank the passages w.r.t. their log-probability
+    rankings = log_probs.argsort(axis=1, descending=True)
+    diag = torch.diagonal(rankings, 0)
+    hits_at_1 = (diag == 0).float().mean().item()
+    mrr = (1 / (diag + 1)).float().mean().item()
+
+    # for ranking, label in zip(rankings, range(bsz)):
+    #     if ranking[0] == label:
+    #         hits_at_1 += 1
+    #     # +1 to count from 1 instead of 0
+    #     rank = (ranking == label).nonzero()[0].item() + 1
+    #     mrr += 1/rank    
+    return {"MRR@N": mrr, "hits@1": hits_at_1, "bsz": bsz}
 
 
 # def retrieval(eval_outputs, ignore_index=-100, output_key='log_probs'):

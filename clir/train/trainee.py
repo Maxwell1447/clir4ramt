@@ -18,7 +18,7 @@ from transformers import BertModel
 
 from ..data.loading import get_pretrained
 from .optim import LinearLRWithWarmup
-
+from .metrics import batch_metrics
 
 class Trainee(pl.LightningModule):
     """
@@ -88,6 +88,9 @@ class Trainee(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
+        metrics = batch_metrics(outputs['log_probs'])
+        for key in metrics:
+            self.log(f"eval/{key}", metrics[key], batch_size=bsz, sync_dist=True)
         return outputs
     
     def test_step(self, batch, batch_idx):
@@ -95,6 +98,9 @@ class Trainee(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("test/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
+        metrics = batch_metrics(outputs['log_probs'])
+        for key in metrics:
+            self.log(f"eval/{key}", metrics[key], batch_size=bsz, sync_dist=True)
         return outputs
     
     def eval_epoch_end(self, *args, **kwargs):
@@ -288,7 +294,8 @@ class BiEncoder(Trainee):
     def eval_step(self, inputs, batch_idx):
         model_outputs = self.step(inputs, batch_idx)
         # metrics = batch_retrieval(model_outputs['log_probs'])
-        return dict(loss=model_outputs['loss'])
+        # return dict(loss=model_outputs['loss'])
+        return model_outputs
                 
     def eval_epoch_end(self, eval_outputs):
         loss = torch.mean([output['loss'] for output in eval_outputs])
