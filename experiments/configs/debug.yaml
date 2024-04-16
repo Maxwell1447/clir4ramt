@@ -1,0 +1,72 @@
+# pytorch_lightning==2.2.2
+seed_everything: 42
+trainer:
+  accelerator: cpu
+  strategy: ddp_find_unused_parameters_true
+  devices: 1
+  num_nodes: 1
+  precision: 32
+  logger: true
+  callbacks: null
+  fast_dev_run: false
+  max_epochs: null
+  min_epochs: null
+  max_steps: -1
+  min_steps: null
+  max_time: null
+  limit_train_batches: null
+  limit_val_batches: 0.0
+  limit_test_batches: null
+  limit_predict_batches: null
+  overfit_batches: 0.0
+  val_check_interval: null
+  check_val_every_n_epoch: 1
+  num_sanity_val_steps: null
+  log_every_n_steps: 4
+  enable_checkpointing: null
+  enable_progress_bar: true
+  enable_model_summary: null
+  accumulate_grad_batches: 1
+  gradient_clip_val: 2.0
+  gradient_clip_algorithm: "norm"
+  deterministic: null
+  benchmark: null
+  inference_mode: true
+  use_distributed_sampler: true
+  profiler: null
+  detect_anomaly: false
+  barebones: false
+  plugins: null
+  sync_batchnorm: false
+  reload_dataloaders_every_n_epochs: 0
+  default_root_dir: experiments/logs/debug
+ckpt_path: null
+model:
+  class_path: clir.train.trainee.BiEncoder
+  init_args:
+    model_name_or_path: null
+    vocab_size: 34852
+    pad_token_id: 1
+    type_vocab_size: 1
+    freeze_regex: null
+    gradient_checkpointing: false
+    warmup_steps: 0
+    lr: 2.0e-05
+    betas:
+    - 0.9
+    - 0.999
+    eps: 1.0e-08
+    weight_decay: 0.0
+data:
+  class_path: clir.train.data.DataModuleMMap
+  init_args:
+    dict_path: /nfs/RESEARCH/bouthors/packages/clir/test/dict.en.txt
+    dataset_path: /nfs/RESEARCH/bouthors/packages/clir/test
+    src_lang: en
+    tgt_lang: fr
+    train: true
+    valid: false
+    test: false
+    max_positions: 1024
+    max_tokens: 2048
+    max_sentences: 100

@@ -1,6 +1,6 @@
-datasets>=2.4.0
 tqdm>=4.49.0
 transformers>=4.22.2
-optuna>=2.9.1
 faiss-gpu>=1.7.1
 pytorch-lightning[extra]>=1.7.7
+torchtext
+fairseq

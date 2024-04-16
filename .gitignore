@@ -1,0 +1,4 @@
+*.pyc
+clir.egg-info
+experiments/logs
+test

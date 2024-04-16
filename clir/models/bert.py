@@ -1,10 +1,24 @@
 # -*- coding: utf-8 -*-
-"""Copied from transformers because not accessible otherwise."""
-import math
-from typing import Optional, Tuple
+# """Copied from transformers because not accessible otherwise."""
+# import math
+# from typing import Optional, Tuple
 
 from torch import nn
 import torch
+import transformers
+# from transformers import BertModel
+
+# class BertWithCustomEmbedding(nn.Module):
+#     def __init__(self, config):
+#         super().__init__()
+#         self.tok_embedding = nn.Embedding(config.vocab_size, config.hidden_size)
+#         self.pos_embedding = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+#         self.bert = BertModel(config)
+
+#     def forward(self, input_tok_ids):
+#         # TODO
+
+
 
 from transformers.activations import ACT2FN
 

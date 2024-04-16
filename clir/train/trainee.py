@@ -13,6 +13,8 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 import pytorch_lightning as pl
+from transformers import BertModel
+# from clir.models import BertWithCustomEmbedding
 
 from ..data.loading import get_pretrained
 from .optim import LinearLRWithWarmup
@@ -96,12 +98,12 @@ class Trainee(pl.LightningModule):
         warnings.warn("eval_epoch_end is not implemented.")
         return {}
     
-    def validation_epoch_end(self, *args, **kwargs):
+    def on_validation_epoch_end(self, *args, **kwargs):
         """eval_epoch_end and log"""
         loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
         self.log(f"eval/loss", loss)
             
-    def test_epoch_end(self, *args, **kwargs):
+    def on_test_epoch_end(self, *args, **kwargs):
         """eval_epoch_end and log"""
         loss = self.eval_epoch_end(*args, **kwargs)['mean-loss']
         log_dir = Path(self.trainer.log_dir)
@@ -174,10 +176,10 @@ class Trainee(pl.LightningModule):
         return any(getattr(m, "gradient_checkpointing", False) for m in self.modules())
 
         
-def _get_bert(dpr_encoder):
-    if hasattr(dpr_encoder, 'question_encoder'):
-        return dpr_encoder.question_encoder.bert_model
-    return dpr_encoder.ctx_encoder.bert_model
+# def _get_bert(dpr_encoder):
+#     if hasattr(dpr_encoder, 'question_encoder'):
+#         return dpr_encoder.question_encoder.bert_model
+#     return dpr_encoder.ctx_encoder.bert_model
 
 
 class BiEncoder(Trainee):
@@ -185,19 +187,44 @@ class BiEncoder(Trainee):
     The training objective is to minimize the negative log-likelihood of the similarities (dot product)
     between the questions and the passages embeddings, as described in [3]_.
     """
-    def __init__(self, *args, model_name_or_path, **kwargs):
+    def __init__(
+        self,
+        *args,
+        model_name_or_path=None,
+        vocab_size=30145,
+        pad_token_id=0,
+        type_vocab_size=2,
+        **kwargs):
         super().__init__(*args, **kwargs)        
         # default to symmetric encoders
         # init encoders
-        self.src_model = get_pretrained("BERT", pretrained_model_name_or_path=model_name_or_path, **question_kwargs)
+        self.pad_token_id = pad_token_id
+        self.src_model = get_pretrained(
+            pretrained_model_name_or_path=model_name_or_path,
+            vocab_size=vocab_size,
+            pad_token_id=pad_token_id,
+            type_vocab_size=type_vocab_size,
+        )
+        # self.src_model = get_pretrained(BertModel, pretrained_model_name_or_path=model_name_or_path)
         self.tgt_model = self.src_model
         
         # loss and metrics
         self.log_softmax = nn.LogSoftmax(1)
         self.loss_fct = nn.NLLLoss(reduction='mean')
         
-        if not superclass:
-            self.post_init()        
+        self.post_init()
+
+    def make_input_from_fairseq(self, input):
+        return dict(
+            src=dict(
+                input_ids=input["net_input"]["src_tokens"],
+                attention_mask=input["net_input"]["src_tokens"].ne(self.pad_token_id)
+            ),
+            tgt=dict(
+                input_ids=input["target"],
+                attention_mask=input["target"].ne(self.pad_token_id)
+            )
+        )
         
     def forward(self, input):
         """        
@@ -205,11 +232,16 @@ class BiEncoder(Trainee):
         ----------
         input: dict
         """
+        # print("input\n", input)
+        if "net_input" in input:
+            input = self.make_input_from_fairseq(input)
         # embed questions and contexts
         src_out = self.src_model(**input["src"])
         tgt_out = self.tgt_model(**input["tgt"])
+        # print(src_out)
+        # print(src_out.last_hidden_state[:, 0, :])
 
-        return dict(src=src_out, tgt=tgt_out)
+        return dict(src=src_out.last_hidden_state[:, 0, :], tgt=tgt_out.last_hidden_state[:, 0, :])
 
     def step(self, inputs, _):
         """

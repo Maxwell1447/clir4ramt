@@ -5,10 +5,10 @@ from setuptools import setup, find_packages
 
 # with open('README.rst') as f:
 #     long_description = f.read()
-long_description = ""
+long_description = "Cross lingual Information Retrieval for NMT"
 
 setup(
-    name='clirnmt',
+    name='clir',
     packages=find_packages(),
     install_requires=[
         str(r)
