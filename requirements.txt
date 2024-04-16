@@ -2,5 +2,6 @@ tqdm>=4.49.0
 transformers>=4.22.2
 faiss-gpu>=1.7.1
 pytorch-lightning[extra]>=1.7.7
+torchmetrics
 torchtext
 fairseq

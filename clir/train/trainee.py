@@ -18,7 +18,7 @@ from transformers import BertModel
 
 from ..data.loading import get_pretrained
 from .optim import LinearLRWithWarmup
-from .metrics import batch_metrics
+from .metrics import *
 
 class Trainee(pl.LightningModule):
     """
@@ -53,6 +53,10 @@ class Trainee(pl.LightningModule):
         self.eps = eps
         self.weight_decay = weight_decay        
         self.param_groups = self.parameters()
+        self.metrics = metric_collection = MetricCollection([
+            InBatchAccuracy(),
+            InBatchMRR()
+        ])
         
     # should be called at the end of each subclass __init__
     def post_init(self):
@@ -88,9 +92,11 @@ class Trainee(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
-        metrics = batch_metrics(outputs['log_probs'])
-        for key in metrics:
-            self.log(f"eval/{key}", metrics[key], batch_size=bsz, sync_dist=True)
+        # metrics = batch_metrics(outputs['log_probs'])
+        self.metrics(outputs['log_probs'])
+        # for key in metrics:
+        #     self.log(f"eval/{key}", metrics[key], batch_size=bsz, sync_dist=True)
+        self.log_dict(self.metrics, on_step=False, on_epoch=True)
         return outputs
     
     def test_step(self, batch, batch_idx):
@@ -285,7 +291,9 @@ class BiEncoder(Trainee):
             tgt_out = tgt_out.view(n_gpus*N, -1)
 
         # compute similarity
+        # print("shape src out", src_out.shape)
         similarities = src_out @ tgt_out.T  # (B, B)
+        assert similarities.size(0) == similarities.size(1)
         log_probs = self.log_softmax(similarities)
 
         loss = self.loss_fct(log_probs, torch.arange(len(similarities), device=similarities.device))
@@ -297,9 +305,9 @@ class BiEncoder(Trainee):
         # return dict(loss=model_outputs['loss'])
         return model_outputs
                 
-    def eval_epoch_end(self, eval_outputs):
-        loss = torch.mean([output['loss'] for output in eval_outputs])
-        return {'mean-loss': loss}
+    # def eval_epoch_end(self, eval_outputs):
+    #     loss = torch.mean([output['loss'] for output in eval_outputs])
+    #     return {'mean-loss': loss}
     
     def save_pretrained(self, ckpt_path):
         self.src_model.save_pretrained(ckpt_path)
