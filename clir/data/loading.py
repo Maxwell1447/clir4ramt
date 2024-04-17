@@ -20,11 +20,13 @@ def get_pretrained(pretrained_model_name_or_path, **kwargs):
         # print("kwargs", kwargs)
         # print(ClassModel.config_class())
         # print(ClassModel.config_class(**kwargs))
-        model = ClassModel(ClassModel.config_class(**kwargs))
+        config = ClassModel.config_class(**kwargs)
+        model = ClassModel(config)
         print(f"Randomly initialized model:\n{model}")
     else:
-        model = transformers.from_pretrained(pretrained_model_name_or_path, **kwargs)        
-    return model
+        model = transformers.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        config = None
+    return model, config
 
 
 def load_pretrained_in_kwargs(kwargs):
