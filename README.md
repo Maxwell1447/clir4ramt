@@ -13,8 +13,11 @@ python setup build_ext --inplace
 
 To install this package:
 ```bash
-git clone https://github.com/...
+git clone https://github.com/Maxwell1447/clir4ramt.git
 cd clir
 pip install .
 ```
 
+```bash
+python -m clir.train.trainer fit --config=experiments/configs/{config}.yaml
+```
