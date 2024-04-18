@@ -75,13 +75,13 @@ model:
 data:
   class_path: clir.train.data.DataModuleMMap
   init_args:
-    dict_path: experiments/data/data-bin/dict.en.txt
-    dataset_path: experiments/data/data-bin
+    dict_path: experiments/data/multidomain/data-bin/dict.en.txt
+    dataset_path: experiments/data/multidomain/data-bin
     src_lang: en
     tgt_lang: fr
     train: true
     valid: true
     test: false
-    max_positions: 512
+    max_positions: 256
     max_tokens: 8192
     max_sentences: 128

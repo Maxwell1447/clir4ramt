@@ -82,7 +82,7 @@ class Trainee(pl.LightningModule):
         outputs = self.step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("train/loss", outputs['loss'], batch_size=bsz)
-        if 'bow_src_tgt' in outputs:
+        if outputs['bow_src_tgt'] is not None:
             self.log("eval/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
             self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
             self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
@@ -93,7 +93,7 @@ class Trainee(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
-        if 'bow_src_tgt' in outputs:
+        if outputs['bow_src_tgt'] is not None:
             self.log("eval/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
             self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
             self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
