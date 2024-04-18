@@ -70,28 +70,48 @@ class LabelSmoothingLoss(nn.Module):
         loss = self.confidence * nll_loss + self.smoothing * smooth_loss
         return loss.mean()
 
-class BOWLoss(nn.Module):
+class MultiNLLLoss(nn.Module):
+    """
+    - sum_w log(p_w | X) 
+    """
+
+    def __init__(self, reduction="mean"):
+        super(MultiNLLLoss, self).__init__()
+        self.reduction = "mean"
+
+    def forward(self, logprobs, target):
+        # logprobs : B x V
+        # target : (B x V)
+        if self.reduction == "mean":
+            return -logprobs[target].mean()
+        else:
+            return -logprobs[target].sum()
+
+class BOWModule(nn.Module):
     """BOW loss to predict terms in the other language.
     """
     def __init__(self, d_hidden, voc_size, factor=0.1):
-        super(BOWLoss, self).__init__()
+        super(BOWModule, self).__init__()
         self.voc_size = voc_size
         self.factor = factor
         self.num_spec = 4
         self.voc_linear = nn.Linear(d_hidden, voc_size)
         self.log_softmax = nn.LogSoftmax(dim=1)
-        self.loss_fct = nn.NLLLoss(reduction='mean')
+        self.loss_fct = MultiNLLLoss(reduction='mean')
+        # self.loss_fct = nn.NLLLoss(reduction='mean')
 
     def forward(self, last_hidden_state_cls, other_sentence):
         # last_hidden_state_cls : B x d
         # other_sentence : B x L
-        one_hot = torch.zeros(other_sentence.size(0), self.voc_size + self.num_spec, device=other_sentence.device, dtype=torch.int64)
+        one_hot = torch.zeros(other_sentence.size(0), self.voc_size + self.num_spec, device=other_sentence.device, dtype=torch.bool)
         # tgt : (B x V)
-        tgt = one_hot.scatter_(1, other_sentence, 1)[:, self.num_spec:].reshape(other_sentence.size(0) * self.voc_size)
-        # out : (B x V) x 2
-        out_ = self.voc_linear(last_hidden_state_cls).view(other_sentence.size(0) * self.voc_size)
-        out = torch.zeros((other_sentence.size(0) * self.voc_size, 2), dtype=out_.dtype, device=other_sentence.device)
-        out[:, 1] = out_
-        out = self.log_softmax(out)
-        return self.factor * self.loss_fct(out, tgt)
+        tgt = one_hot.scatter_(1, other_sentence, 1)[:, self.num_spec:].reshape(other_sentence.size(0), self.voc_size)
+        ## out : (B x V) x 2
+        # out : B x V
+        out_ = self.voc_linear(last_hidden_state_cls) #.view(other_sentence.size(0) * self.voc_size)
+        # out = torch.zeros((other_sentence.size(0) * self.voc_size, 2), dtype=out_.dtype, device=other_sentence.device)
+        # out[:, 1] = out_
+        out = self.log_softmax(out_)
+        # return self.factor * self.loss_fct(out, tgt)
+        return dict(loss=self.factor * self.loss_fct(out, tgt), logprobs=out, target=tgt)
         

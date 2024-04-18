@@ -1,4 +1,5 @@
 *.pyc
 clir.egg-info
 experiments/logs
+experiments/data
 test

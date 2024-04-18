@@ -17,7 +17,7 @@ from transformers import BertModel
 # from clir.models import BertWithCustomEmbedding
 
 from ..data.loading import get_pretrained
-from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss, BOWLoss
+from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss, BOWModule
 from .metrics import *
 
 class Trainee(pl.LightningModule):
@@ -55,10 +55,7 @@ class Trainee(pl.LightningModule):
         self.eps = eps
         self.weight_decay = weight_decay        
         self.param_groups = self.parameters()
-        self.metrics = MetricCollection([
-            InBatchAccuracy(),
-            InBatchMRR()
-        ])
+        self.metrics = None
         self.label_smoothing = label_smoothing
         
     # should be called at the end of each subclass __init__
@@ -85,10 +82,10 @@ class Trainee(pl.LightningModule):
         outputs = self.step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("train/loss", outputs['loss'], batch_size=bsz)
-        if 'bow_loss_src_tgt' in outputs:
+        if 'bow_src_tgt' in outputs:
             self.log("eval/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
-            self.log("eval/bow_loss_src_tgt", outputs['bow_loss_src_tgt'], batch_size=bsz, sync_dist=True)
-            self.log("eval/bow_loss_tgt_src", outputs['bow_loss_tgt_src'], batch_size=bsz, sync_dist=True)
+            self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
+            self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
         return outputs
     
     def validation_step(self, batch, batch_idx):
@@ -96,10 +93,14 @@ class Trainee(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
-        if 'bow_loss_src_tgt' in outputs:
+        if 'bow_src_tgt' in outputs:
             self.log("eval/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
-            self.log("eval/bow_loss_src_tgt", outputs['bow_loss_src_tgt'], batch_size=bsz, sync_dist=True)
-            self.log("eval/bow_loss_tgt_src", outputs['bow_loss_tgt_src'], batch_size=bsz, sync_dist=True)
+            self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
+            self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
+            self.bow_metric_src_tgt(outputs['bow_src_tgt']['logprobs'], outputs['bow_src_tgt']['target'])
+            self.bow_metric_tgt_src(outputs['bow_tgt_src']['logprobs'], outputs['bow_src_tgt']['target'])
+            self.log("eval/bow_acc_src_tgt", self.bow_metric_src_tgt, on_step=False, on_epoch=True)
+            self.log("eval/bow_acc_tgt_src", self.bow_metric_tgt_src, on_step=False, on_epoch=True)
         self.metrics(outputs['log_probs'])
         self.log_dict(self.metrics, on_step=False, on_epoch=True)
         return outputs
@@ -232,8 +233,21 @@ class BiEncoder(Trainee):
             self.loss_fct = nn.NLLLoss(reduction='mean')
         else:
             self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
-        self.bow_loss_src_tgt = BOWLoss(config.hidden_size, vocab_size) if bow_loss and bow_loss_factor > 0.0 else None
-        self.bow_loss_tgt_src = BOWLoss(config.hidden_size, vocab_size) if bow_loss and bow_loss_factor > 0.0 else None
+        
+        if bow_loss and bow_loss_factor > 0.0:
+            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size)
+            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size)
+            self.bow_metric_src_tgt = BOWAccuracy()
+            self.bow_metric_tgt_src = BOWAccuracy()
+        else:
+            self.bow_loss_src_tgt = None
+            self.bow_loss_tgt_src = None
+            self.bow_metric_src_tgt = None
+            self.bow_metric_tgt_src = None
+        self.metrics = MetricCollection([
+            InBatchAccuracy(),
+            InBatchMRR()
+        ])
         
         self.post_init()
 
@@ -299,14 +313,14 @@ class BiEncoder(Trainee):
         loss_ibns = self.loss_fct(log_probs, torch.arange(len(log_probs), device=log_probs.device))
         loss = loss_ibns
         if self.bow_loss_src_tgt is not None:
-            loss_src_tgt = self.bow_loss_src_tgt(src_out, inputs["tgt"]["input_ids"])
-            loss += loss_src_tgt
-            loss_tgt_src = self.bow_loss_tgt_src(tgt_out, inputs["src"]["input_ids"])
-            loss += loss_tgt_src
+            out_src_tgt = self.bow_loss_src_tgt(src_out, inputs["tgt"]["input_ids"])
+            loss += out_src_tgt["loss"]
+            out_tgt_src = self.bow_loss_tgt_src(tgt_out, inputs["src"]["input_ids"])
+            loss += out_tgt_src["loss"]
         else:
-            loss_src_tgt = None
-            loss_tgt_src = None
-        return dict(loss=loss, ibns_loss=loss_ibns, bow_loss_src_tgt=loss_src_tgt, bow_loss_tgt_src=loss_tgt_src, log_probs=log_probs)
+            out_src_tgt = None
+            out_tgt_src = None
+        return dict(loss=loss, ibns_loss=loss_ibns, bow_src_tgt=out_src_tgt, bow_tgt_src=out_tgt_src, log_probs=log_probs)
                     
     def eval_step(self, inputs, batch_idx):
         model_outputs = self.step(inputs, batch_idx)

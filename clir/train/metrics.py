@@ -44,3 +44,19 @@ class InBatchMRR(Metric):
 
     def compute(self):
         return self.mrr / self.total
+
+class BOWAccuracy(Metric):
+    def __init__(self, dist_sync_on_step=False):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.add_state("hits", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
+
+    def update(self, log_probs: torch.Tensor, target: torch.Tensor):
+        bsz, _ = log_probs.shape
+        log_probs.argsort(1)
+        self.hits += torch.gather(target, 1, log_probs.argsort(1, descending=True))[target.long().sort(1, descending=True)[0].bool()].sum()
+        self.total += target.sum()
+
+    def compute(self):
+        return self.hits / self.total
