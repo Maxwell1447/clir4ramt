@@ -306,7 +306,7 @@ class BiEncoder(Trainee):
         else:
             loss_src_tgt = None
             loss_tgt_src = None
-        return dict(loss=loss, loss_ibns=loss_ibns, bow_loss_src_tgt=loss_src_tgt, bow_loss_tgt_src=loss_tgt_src, log_probs=log_probs)
+        return dict(loss=loss, ibns_loss=loss_ibns, bow_loss_src_tgt=loss_src_tgt, bow_loss_tgt_src=loss_tgt_src, log_probs=log_probs)
                     
     def eval_step(self, inputs, batch_idx):
         model_outputs = self.step(inputs, batch_idx)

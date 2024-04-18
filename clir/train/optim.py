@@ -85,12 +85,12 @@ class BOWLoss(nn.Module):
     def forward(self, last_hidden_state_cls, other_sentence):
         # last_hidden_state_cls : B x d
         # other_sentence : B x L
-        one_hot = torch.zeros(other_sentence.size(0), self.voc_size + self.num_spec)
+        one_hot = torch.zeros(other_sentence.size(0), self.voc_size + self.num_spec, device=other_sentence.device, dtype=torch.int64)
         # tgt : (B x V)
-        tgt = one_hot.scatter_(1, other_sentence, 1)[:, self.num_spec:].view(other_sentence.size(0) * self.voc_size)
+        tgt = one_hot.scatter_(1, other_sentence, 1)[:, self.num_spec:].reshape(other_sentence.size(0) * self.voc_size)
         # out : (B x V) x 2
         out_ = self.voc_linear(last_hidden_state_cls).view(other_sentence.size(0) * self.voc_size)
-        out = torch.zeros_like(out_t, (other_sentence.size(0) * self.voc_size, 2))
+        out = torch.zeros((other_sentence.size(0) * self.voc_size, 2), dtype=out_.dtype, device=other_sentence.device)
         out[:, 1] = out_
         out = self.log_softmax(out)
         return self.factor * self.loss_fct(out, tgt)
