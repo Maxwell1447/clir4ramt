@@ -8,6 +8,9 @@ trainer:
   precision: 32
   logger: true
   callbacks:
+  - class_path: pytorch_lightning.callbacks.early_stopping.EarlyStopping
+    init_args:
+      monitor: eval/loss
   - class_path: pytorch_lightning.callbacks.ModelCheckpoint
     init_args:
       save_top_k: 1
@@ -46,7 +49,7 @@ trainer:
   plugins: null
   sync_batchnorm: false
   reload_dataloaders_every_n_epochs: 1
-  default_root_dir: experiments/logs/debug
+  default_root_dir: experiments/logs/train-clir
 ckpt_path: null
 model:
   class_path: clir.train.trainee.BiEncoder
@@ -72,8 +75,8 @@ model:
 data:
   class_path: clir.train.data.DataModuleMMap
   init_args:
-    dict_path: /nfs/RESEARCH/bouthors/projects/multi-retrieval/multi-cross/data/data-bin/dict.en.txt
-    dataset_path: /nfs/RESEARCH/bouthors/projects/multi-retrieval/multi-cross/data/data-bin
+    dict_path: experiments/data/data-bin/dict.en.txt
+    dataset_path: experiments/data/data-bin
     src_lang: en
     tgt_lang: fr
     train: true
