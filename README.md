@@ -21,3 +21,7 @@ pip install .
 ```bash
 python -m clir.train.trainer fit --config=experiments/configs/{config}.yaml
 ```
+
+```bash
+python -m clir.index.index --config experiments/configs/{config}.yaml
+```

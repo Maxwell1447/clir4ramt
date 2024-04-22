@@ -1,8 +1,11 @@
 import os
 import torch
 from fairseq.tasks.translation import load_langpair_dataset
+from fairseq.data import PrependTokenDataset
 from fairseq.data import iterators, data_utils
 from fairseq.data import Dictionary
+from torch.utils.data import DataLoader, Dataset
+from functools import partial
 from typing import *
 
 def load_data_iter_from_path(data_path, split, src, tgt, max_positions=1024, max_tokens=2048, max_sentences=100):
@@ -84,6 +87,42 @@ def load_epoch_iter(
         num_workers=2,
         epoch=1,
         buffer_size=0,
+        return_dataloader=True
     )
 
     return epoch_iter
+
+class IndexerDataset(Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+    
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        return dict(id=torch.tensor(idx), tokens=self.dataset[idx])
+
+def collater(pad_idx, dict_list, **kwargs):
+    out = dict()
+    assert len(dict_list) > 0
+    for k in dict_list[0]:
+        if dict_list[0][k].dim() == 0:
+            out[k] = torch.tensor([dic[k] for dic in dict_list])
+        else:
+            out[k] = data_utils.collate_tokens([dic[k] for dic in dict_list], pad_idx, **kwargs)
+    return out
+
+def load_monolingual_corpus(data_path=None, dict_path=None, batch_size=None):
+    mono_dict = Dictionary.load(dict_path)
+    dataset = data_utils.load_indexed_dataset(
+        data_path,
+        mono_dict,
+        "mmap",
+        combine=True,
+    )
+    dataset = IndexerDataset(PrependTokenDataset(dataset, mono_dict.bos()))
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        collate_fn=partial(collater, mono_dict.pad_index)
+    ), mono_dict
