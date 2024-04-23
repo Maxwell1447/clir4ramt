@@ -111,8 +111,8 @@ class BiEncoder(pl.LightningModule):
             self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
         
         if bow_loss and bow_loss_factor > 0.0:
-            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size)
-            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size)
+            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor)
+            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor)
             self.bow_metric_src_tgt = BOWAccuracy()
             self.bow_metric_tgt_src = BOWAccuracy()
         else:

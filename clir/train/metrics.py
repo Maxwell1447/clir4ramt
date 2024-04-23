@@ -54,7 +54,7 @@ class BOWAccuracy(Metric):
 
     def update(self, log_probs: torch.Tensor, target: torch.Tensor):
         bsz, _ = log_probs.shape
-        log_probs.argsort(1)
+        # log_probs.argsort(1)
         self.hits += torch.gather(target, 1, log_probs.argsort(1, descending=True))[target.long().sort(1, descending=True)[0].bool()].sum()
         self.total += target.sum()
 

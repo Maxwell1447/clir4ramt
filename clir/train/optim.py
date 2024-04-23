@@ -90,7 +90,7 @@ class MultiNLLLoss(nn.Module):
 class BOWModule(nn.Module):
     """BOW loss to predict terms in the other language.
     """
-    def __init__(self, d_hidden, voc_size, factor=0.1):
+    def __init__(self, d_hidden, voc_size, factor=1.0):
         super(BOWModule, self).__init__()
         self.voc_size = voc_size
         self.factor = factor
