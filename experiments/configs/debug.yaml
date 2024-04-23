@@ -1,7 +1,7 @@
 # pytorch_lightning==2.2.2
 seed_everything: 42
 trainer:
-  accelerator: cpu
+  accelerator: gpu
   strategy: ddp_find_unused_parameters_true
   devices: 1
   num_nodes: 1

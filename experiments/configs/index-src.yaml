@@ -1,9 +1,9 @@
 data:
-  data_path: experiments/data/multidomain/data-bin/train.en-fr.fr
-  dict_path: experiments/data/multidomain/data-bin/dict.fr.txt
+  data_path: experiments/data/multidomain/data-bin/train.en-fr.en
+  dict_path: experiments/data/multidomain/data-bin/dict.en.txt
   batch_size: 100
 checkpoint: experiments/logs/train-clir/lightning_logs/version_4/checkpoints/last.ckpt
-side: target
+side: source
 device: cuda
 index_dir: experiments/data/multidomain/index
 index_name: debug.pt

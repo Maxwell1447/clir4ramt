@@ -8,10 +8,10 @@ import os
 import torch
 from ..train.trainee import BiEncoder
 from ..data.data import load_monolingual_corpus
-from transformers import BertModel
+# from transformers import BertModel
 
 
-def indexerCli(data=None, checkpoint=None, model_kwargs=None, device=None, index_dir=None, index_name=None, **kwargs):
+def indexerCli(data=None, checkpoint=None, side="target", model_kwargs=None, device="cpu", index_dir=None, index_name=None, **kwargs):
     """
     data_path: str
         path to data to index
@@ -21,7 +21,10 @@ def indexerCli(data=None, checkpoint=None, model_kwargs=None, device=None, index
     if device != "cpu":
         assert torch.cuda.is_available(), "No cuda device found"
     module = BiEncoder.load_from_checkpoint(checkpoint, **model_kwargs)
-    model = module.tgt_model.to(device)
+    if side != "target":
+        model = module.src_model.to(device)
+    else:
+        model = module.tgt_model.to(device)
     del module
     dataloader, dic = load_monolingual_corpus(**data)
     outs = list()
