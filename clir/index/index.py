@@ -8,6 +8,7 @@ import os
 import torch
 from ..train.trainee import BiEncoder
 from ..data.data import load_monolingual_corpus
+from tqdm import tqdm
 # from transformers import BertModel
 
 
@@ -29,7 +30,7 @@ def indexerCli(data=None, checkpoint=None, side="target", model_kwargs=None, dev
     dataloader, dic = load_monolingual_corpus(**data)
     outs = list()
     with torch.no_grad():
-        for samples in iter(dataloader):
+        for samples in tqdm(iter(dataloader)):
             tokens = samples["tokens"].to(device)
             outs.append(model(
                 input_ids=tokens,

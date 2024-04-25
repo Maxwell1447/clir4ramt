@@ -93,13 +93,20 @@ def load_epoch_iter(
     return epoch_iter
 
 class IndexerDataset(Dataset):
-    def __init__(self, dataset):
+    def __init__(self, dataset, max_length=512, eos=2):
         self.dataset = dataset
+        self.eos = eos
+        self.max_length = max_length
     
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, idx):
+        if len(self.dataset[idx]) > self.max_length:
+            x = self.dataset[idx]
+            x = x[:self.max_length]
+            x[-1] = self.eos
+            return dict(id=torch.tensor(idx), tokens=x)
         return dict(id=torch.tensor(idx), tokens=self.dataset[idx])
 
 def collater(pad_idx, dict_list, **kwargs):
@@ -120,7 +127,7 @@ def load_monolingual_corpus(data_path=None, dict_path=None, batch_size=None):
         "mmap",
         combine=True,
     )
-    dataset = IndexerDataset(PrependTokenDataset(dataset, mono_dict.bos()))
+    dataset = IndexerDataset(PrependTokenDataset(dataset, mono_dict.bos()), max_length=512, eos=mono_dict.eos())
     return DataLoader(
         dataset,
         batch_size=batch_size,
