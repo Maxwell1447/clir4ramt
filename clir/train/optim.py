@@ -75,29 +75,37 @@ class MultiNLLLoss(nn.Module):
     - sum_w log(p_w | X) 
     """
 
-    def __init__(self, reduction="mean"):
+    def __init__(self, label_smoothing=0.0):
         super(MultiNLLLoss, self).__init__()
-        self.reduction = "mean"
+        self.ls = label_smoothing
 
-    def forward(self, logprobs, target):
+    def forward(self, logprobs, target_mask):
         # logprobs : B x V
-        # target : (B x V)
-        if self.reduction == "mean":
-            return -logprobs[target].mean()
+        # target_mask : B x V
+        if self.ls > 0:
+            smooth_loss = -logprobs.mean(-1).mean()
         else:
-            return -logprobs[target].sum()
+            smooth_loss = 0
+        masked_logprobs = logprobs.masked_fill(~target_mask, 0)
+        loss = -(masked_logprobs.sum(-1) / target_mask.sum(-1)).mean()
+        return self.ls * smooth_loss + (1.0 - self.ls) * loss
+        # else:
+        #     if self.reduction == "mean":
+        #         return -logprobs[target_mask].mean()
+        #     else:
+        #         return -logprobs[target_mask].sum()
 
 class BOWModule(nn.Module):
     """BOW loss to predict terms in the other language.
     """
-    def __init__(self, d_hidden, voc_size, factor=1.0):
+    def __init__(self, d_hidden, voc_size, factor=1.0, label_smoothing=0.0):
         super(BOWModule, self).__init__()
         self.voc_size = voc_size
         self.factor = factor
         self.num_spec = 4
         self.voc_linear = nn.Linear(d_hidden, voc_size)
         self.log_softmax = nn.LogSoftmax(dim=1)
-        self.loss_fct = MultiNLLLoss(reduction='mean')
+        self.loss_fct = MultiNLLLoss(label_smoothing=label_smoothing)
         # self.loss_fct = nn.NLLLoss(reduction='mean')
 
     def forward(self, last_hidden_state_cls, other_sentence):

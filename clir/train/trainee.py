@@ -20,44 +20,6 @@ from ..data.loading import get_pretrained
 from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss, BOWModule
 from .metrics import *
 
-# class Trainee(pl.LightningModule):
-#     """
-#     Base class for all Trainee models (to be trained by a Trainer)
-    
-#     Parameters
-#     ----------    
-#     *args, **kwargs: additionnal arguments are passed to pl.LightningModule
-#     freeze_regex: str, optional
-#         represents a regex used to match the model parameters to freeze
-#         (i.e. set ``requires_grad = False``).
-#         Defaults to None (keep model fully-trainable)
-#     gradient_checkpointing: bool, optional
-#     lr, eps, weight_decay: float, optional
-#     betas: Tuple[float], optional    
-#     warmup_steps: int, optional
-#         Defaults to no warm-up
-#     output_cpu: bool, optional
-#     """
-#     def __init__(self, *args, freeze_regex=None, gradient_checkpointing=False,
-#                  warmup_steps=0, lr_scheduler="linear", sqrt_lr_update_factor=100, lr=2e-5, betas=(0.9, 0.999), eps=1e-08, 
-#                  weight_decay=0.0, label_smoothing=0.0, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.freeze_regex = freeze_regex
-#         self.gradient_checkpointing = gradient_checkpointing
-#         # self.weights_to_log = {}
-        
-#         # scheduling and optimization
-#         self.warmup_steps = warmup_steps
-#         self.lr_scheduler = lr_scheduler
-#         self.sqrt_lr_update_factor = sqrt_lr_update_factor
-#         self.lr = lr
-#         self.betas = betas
-#         self.eps = eps
-#         self.weight_decay = weight_decay        
-#         self.param_groups = self.parameters()
-#         self.metrics = None
-#         self.label_smoothing = label_smoothing
-
 
 class BiEncoder(pl.LightningModule):
     """    
@@ -74,7 +36,8 @@ class BiEncoder(pl.LightningModule):
         bow_loss=False, bow_loss_factor=0,
         freeze_regex=None, gradient_checkpointing=False,
         warmup_steps=0, lr_scheduler="linear", sqrt_lr_update_factor=100, lr=2e-5, betas=(0.9, 0.999), eps=1e-08, 
-        weight_decay=0.0, label_smoothing=0.0,
+        weight_decay=0.0, label_smoothing=0.0, label_smoothing_bow=0.0,
+        normalize=False,
         **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -84,6 +47,7 @@ class BiEncoder(pl.LightningModule):
         self.warmup_steps = warmup_steps
         self.lr_scheduler = lr_scheduler
         self.sqrt_lr_update_factor = sqrt_lr_update_factor
+        self.normalize = normalize
         self.lr = lr
         self.betas = betas
         self.eps = eps
@@ -111,10 +75,10 @@ class BiEncoder(pl.LightningModule):
             self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
         
         if bow_loss and bow_loss_factor > 0.0:
-            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor)
-            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor)
-            self.bow_metric_src_tgt = BOWAccuracy()
-            self.bow_metric_tgt_src = BOWAccuracy()
+            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow)
+            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow)
+            self.bow_metric_src_tgt = BOWRecall()
+            self.bow_metric_tgt_src = BOWRecall()
         else:
             self.bow_loss_src_tgt = None
             self.bow_loss_tgt_src = None
@@ -151,6 +115,11 @@ class BiEncoder(pl.LightningModule):
         tgt_out = self.tgt_model(**input["tgt"])
         # print(src_out)
         # print(src_out.last_hidden_state[:, 0, :])
+        if self.normalize:
+            return dict(
+                nn.functional.normalize(src_out.last_hidden_state[:, 0, :]),
+                nn.functional.normalize(tgt_out.last_hidden_state[:, 0, :])
+            )
 
         return dict(src=src_out.last_hidden_state[:, 0, :], tgt=tgt_out.last_hidden_state[:, 0, :])
 
@@ -241,7 +210,7 @@ class BiEncoder(pl.LightningModule):
             self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
             self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
             self.bow_metric_src_tgt(outputs['bow_src_tgt']['logprobs'], outputs['bow_src_tgt']['target'])
-            self.bow_metric_tgt_src(outputs['bow_tgt_src']['logprobs'], outputs['bow_src_tgt']['target'])
+            self.bow_metric_tgt_src(outputs['bow_tgt_src']['logprobs'], outputs['bow_tgt_src']['target'])
             self.log("eval/bow_acc_src_tgt", self.bow_metric_src_tgt, on_step=False, on_epoch=True)
             self.log("eval/bow_acc_tgt_src", self.bow_metric_tgt_src, on_step=False, on_epoch=True)
         self.metrics(outputs['log_probs'])

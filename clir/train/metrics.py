@@ -45,7 +45,7 @@ class InBatchMRR(Metric):
     def compute(self):
         return self.mrr / self.total
 
-class BOWAccuracy(Metric):
+class BOWRecall(Metric):
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 

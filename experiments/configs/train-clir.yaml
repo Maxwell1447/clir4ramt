@@ -72,6 +72,8 @@ model:
     eps: 1.0e-08
     weight_decay: 0.0
     label_smoothing: 0.1
+    label_smoothing_bow: 0.1
+    normalize: false
     bow_loss: true
     bow_loss_factor: 1.0
 data:

@@ -67,6 +67,7 @@ model:
     eps: 1.0e-08
     weight_decay: 0.0
     label_smoothing: 0.1
+    label_smoothing_bow: 0.1
     bow_loss: true
     bow_loss_factor: 1.0
 data:
@@ -74,8 +75,8 @@ data:
   init_args:
     dict_path: /nfs/RESEARCH/bouthors/packages/clir/test/dict.en.txt
     dataset_path: /nfs/RESEARCH/bouthors/packages/clir/test
-    src_lang: en
-    tgt_lang: fr
+    src_lang: fr
+    tgt_lang: en
     train: true
     valid: true
     test: false
