@@ -48,6 +48,8 @@ class BiEncoder(pl.LightningModule):
         self.lr_scheduler = lr_scheduler
         self.sqrt_lr_update_factor = sqrt_lr_update_factor
         self.normalize = normalize
+        if self.normalize:
+            self.temp = nn.parameter.Parameter(torch.tensor(1.0))
         self.lr = lr
         self.betas = betas
         self.eps = eps
@@ -117,8 +119,8 @@ class BiEncoder(pl.LightningModule):
         # print(src_out.last_hidden_state[:, 0, :])
         if self.normalize:
             return dict(
-                nn.functional.normalize(src_out.last_hidden_state[:, 0, :]),
-                nn.functional.normalize(tgt_out.last_hidden_state[:, 0, :])
+                src=nn.functional.normalize(src_out.last_hidden_state[:, 0, :]),
+                tgt=nn.functional.normalize(tgt_out.last_hidden_state[:, 0, :])
             )
 
         return dict(src=src_out.last_hidden_state[:, 0, :], tgt=tgt_out.last_hidden_state[:, 0, :])
@@ -153,6 +155,8 @@ class BiEncoder(pl.LightningModule):
         # print("shape src out", src_out.shape)
         similarities = src_out @ tgt_out.T  # (B, B)
         assert similarities.size(0) == similarities.size(1)
+        if self.normalize:
+            similarities *= torch.exp(self.temp)
         log_probs = self.log_softmax(similarities)
 
         loss_ibns = self.loss_fct(log_probs, torch.arange(len(log_probs), device=log_probs.device))
@@ -270,6 +274,11 @@ class BiEncoder(pl.LightningModule):
             raise ValueError(f"Wrong scheduler name choice: {self.lr_scheduler}. Available: linear, isqrt")
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return [optimizer], [scheduler]
+        
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure):
+        super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure)
+        if self.normalize:
+            self.temp.data = torch.clip(self.temp, -4.6, 4.6)
         
     
     #####################################################
