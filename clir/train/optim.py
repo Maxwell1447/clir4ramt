@@ -98,12 +98,14 @@ class MultiNLLLoss(nn.Module):
 class BOWModule(nn.Module):
     """BOW loss to predict terms in the other language.
     """
-    def __init__(self, d_hidden, voc_size, factor=1.0, label_smoothing=0.0):
+    def __init__(self, d_hidden, voc_size, factor=1.0, label_smoothing=0.0, bow_multiplicator=1.0):
         super(BOWModule, self).__init__()
         self.voc_size = voc_size
         self.factor = factor
         self.num_spec = 4
         self.voc_linear = nn.Linear(d_hidden, voc_size)
+        self.bow_multiplicator = bow_multiplicator
+        self.voc_linear.weight.data *= self.bow_multiplicator # UPSCALE weights for better separability of normalized vector
         self.log_softmax = nn.LogSoftmax(dim=1)
         self.loss_fct = MultiNLLLoss(label_smoothing=label_smoothing)
         # self.loss_fct = nn.NLLLoss(reduction='mean')

@@ -1,9 +1,10 @@
 import os
 import torch
+import numpy as np
 from fairseq.tasks.translation import load_langpair_dataset
 from fairseq.data import PrependTokenDataset
 from fairseq.data import iterators, data_utils
-from fairseq.data import Dictionary
+from fairseq.data import Dictionary, FairseqDataset
 from torch.utils.data import DataLoader, Dataset
 from functools import partial
 from typing import *
@@ -92,11 +93,14 @@ def load_epoch_iter(
 
     return epoch_iter
 
-class IndexerDataset(Dataset):
-    def __init__(self, dataset, max_length=512, eos=2):
+# class IndexerDataset(Dataset):
+class IndexerDataset(FairseqDataset):
+    def __init__(self, dataset, max_length=512, eos=2, pad=1):
         self.dataset = dataset
         self.eos = eos
+        self.pad = pad
         self.max_length = max_length
+        self.sizes = np.array([min(len(self.dataset[idx]), max_length) for idx in range(len(self))])
     
     def __len__(self):
         return len(self.dataset)
@@ -108,6 +112,31 @@ class IndexerDataset(Dataset):
             x[-1] = self.eos
             return dict(id=torch.tensor(idx), tokens=x)
         return dict(id=torch.tensor(idx), tokens=self.dataset[idx])
+
+    def ordered_indices(self):
+        return np.argsort(self.sizes, kind="mergesort")
+
+    def filter_indices_by_size(self, indices, max_position):
+        return indices, None
+
+    def num_tokens(self, index):
+        return self.sizes[index]
+
+    def num_tokens_vec(self, indices):
+        return self.sizes[indices]
+
+    def size(self, index):
+        return self.sizes[index]
+
+    def collater(self, samples, **kwargs):
+        out = dict()
+        assert len(samples) > 0
+        for k in samples[0]:
+            if samples[0][k].dim() == 0:
+                out[k] = torch.tensor([dic[k] for dic in samples])
+            else:
+                out[k] = data_utils.collate_tokens([dic[k] for dic in samples], self.pad, **kwargs)
+        return out
 
 def collater(pad_idx, dict_list, **kwargs):
     out = dict()
@@ -128,8 +157,17 @@ def load_monolingual_corpus(data_path=None, dict_path=None, batch_size=None):
         combine=True,
     )
     dataset = IndexerDataset(PrependTokenDataset(dataset, mono_dict.bos()), max_length=512, eos=mono_dict.eos())
-    return DataLoader(
+    return load_epoch_iter(
         dataset,
-        batch_size=batch_size,
-        collate_fn=partial(collater, mono_dict.pad_index)
+        seed=0,
+        max_positions=1024,
+        max_tokens=batch_size,
+        max_sentences=100,
+        required_batch_size_multiple=1,
+        ignore_invalid_inputs=True
     ), mono_dict
+    # return DataLoader(
+    #     dataset,
+    #     batch_size=batch_size,
+    #     collate_fn=partial(collater, mono_dict.pad_index)
+    # ), mono_dict

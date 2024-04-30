@@ -38,6 +38,9 @@ class BiEncoder(pl.LightningModule):
         warmup_steps=0, lr_scheduler="linear", sqrt_lr_update_factor=100, lr=2e-5, betas=(0.9, 0.999), eps=1e-08, 
         weight_decay=0.0, label_smoothing=0.0, label_smoothing_bow=0.0,
         normalize=False,
+        temp_lr=None,
+        bow_lr=1e-3,
+        bow_multiplicator=1.0,
         **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -49,12 +52,11 @@ class BiEncoder(pl.LightningModule):
         self.sqrt_lr_update_factor = sqrt_lr_update_factor
         self.normalize = normalize
         if self.normalize:
-            self.temp = nn.parameter.Parameter(torch.tensor(1.0))
+            self.temp = nn.parameter.Parameter(torch.tensor(3.0))
         self.lr = lr
         self.betas = betas
         self.eps = eps
-        self.weight_decay = weight_decay        
-        self.param_groups = self.parameters()
+        self.weight_decay = weight_decay
         self.metrics = None
         self.label_smoothing = label_smoothing
 
@@ -75,10 +77,11 @@ class BiEncoder(pl.LightningModule):
             self.loss_fct = nn.NLLLoss(reduction='mean')
         else:
             self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
-        
+
+        self.bow_multiplicator = bow_multiplicator
         if bow_loss and bow_loss_factor > 0.0:
-            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow)
-            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow)
+            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow, bow_multiplicator=self.bow_multiplicator)
+            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow, bow_multiplicator=self.bow_multiplicator)
             self.bow_metric_src_tgt = BOWRecall()
             self.bow_metric_tgt_src = BOWRecall()
         else:
@@ -90,6 +93,17 @@ class BiEncoder(pl.LightningModule):
             InBatchAccuracy(),
             InBatchMRR()
         ])
+        self.temp_lr = temp_lr
+        if self.temp_lr is None:
+            self.param_groups = self.parameters()
+        else:
+            self.param_groups = [
+                {"params": [self.temp], "lr": self.temp_lr},
+                {"params": self.src_model.parameters()},
+            ]
+            if bow_loss and bow_loss_factor > 0.0:
+                self.param_groups.append({"params": self.bow_loss_src_tgt.parameters(), "lr": bow_lr})
+                self.param_groups.append({"params": self.bow_loss_tgt_src.parameters(), "lr": bow_lr})
         
         self.post_init()
 
@@ -202,6 +216,8 @@ class BiEncoder(pl.LightningModule):
             self.log("train/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
             self.log("train/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
             self.log("train/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
+        if self.normalize:
+            self.log("train/temperature", self.temp.data, on_step=True)
         return outputs
     
     def validation_step(self, batch, batch_idx):
@@ -278,7 +294,7 @@ class BiEncoder(pl.LightningModule):
     def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure):
         super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure)
         if self.normalize:
-            self.temp.data = torch.clip(self.temp, -4.6, 4.6)
+            self.temp.data = torch.clip(self.temp, -4.6, 6)
         
     
     #####################################################
