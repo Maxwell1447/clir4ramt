@@ -160,7 +160,7 @@ def load_monolingual_corpus(data_path=None, dict_path=None, batch_size=None):
     return load_epoch_iter(
         dataset,
         seed=0,
-        max_positions=1024,
+        max_positions=512,
         max_tokens=batch_size,
         max_sentences=100,
         required_batch_size_multiple=1,

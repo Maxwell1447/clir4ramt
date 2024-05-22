@@ -1,12 +1,13 @@
 data:
   data_path: experiments/data/multidomain/data-bin/train.en-fr.en
   dict_path: experiments/data/multidomain/data-bin/dict.en.txt
-  batch_size: 100
-checkpoint: experiments/logs/train-clir/lightning_logs/version_4/checkpoints/last.ckpt
+  batch_size: 16000
+checkpoint: experiments/logs/train-clir/lightning_logs/ls-0.1-norm-temp+/checkpoints/last.ckpt
 side: source
 device: cuda
 index_dir: experiments/data/multidomain/index
-index_name: debug.pt
+index_name: ls-0.1-norm-temp+.train.en.npy
 model_kwargs:
   vocab_size: 34852
   type_vocab_size: 1
+  normalize: true

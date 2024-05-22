@@ -4,9 +4,10 @@ data:
   batch_size: 16000
 checkpoint: experiments/logs/train-clir/lightning_logs/ls-0.1-norm-temp+/checkpoints/last.ckpt
 side: target
-device: cpu
+device: cuda
 index_dir: experiments/data/multidomain/index
-index_name: ls-0.1-norm-temp+.pt
+index_name: ls-0.1-norm-temp+.train.fr.npy
 model_kwargs:
   vocab_size: 34852
   type_vocab_size: 1
+  normalize: true
