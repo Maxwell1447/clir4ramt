@@ -56,7 +56,7 @@ def indexerCli(data=None, checkpoint=None, side="target", model_kwargs=None, dev
 
     if not os.path.isdir(index_dir):
         os.mkdir(index_dir)
-    np.save(f"{os.path.join(index_dir, index_name)}", outs.numpy())
+    np.save(f"{os.path.join(index_dir, index_name)}", outs_ord.numpy())
 
     
 
