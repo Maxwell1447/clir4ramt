@@ -11,3 +11,5 @@ model_kwargs:
   vocab_size: 34852
   type_vocab_size: 1
   normalize: true
+  bow_loss: false
+  bow_loss_factor: 1

@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
-from clir.data.data import load_data_from_path, load_data_iter_from_path
+from clir.data.data import load_data_from_path, load_data_iter_from_path, load_data_iter_and_lev_from_path
 
 # class DataModuleRaw(pl.LightningDataModule):
 #     """
@@ -65,20 +65,36 @@ class DataModuleMMap(pl.LightningDataModule):
     max_position: int, optional
     max_sentences: int, optional
     """
-    def __init__(self, dict_path, dataset_path, src_lang, tgt_lang, train=True, valid=True, test=False, max_positions=1024, max_tokens=2048, max_sentences=100):
+    def __init__(self, dict_path, dataset_path, src_lang, tgt_lang, train=True, valid=True, test=False, max_positions=1024, max_tokens=2048, max_sentences=100, retrieval_path=None, lev_path=None):
         super().__init__()
-        if train:
-            self.train, self.dict = load_data_iter_from_path(dataset_path, "train", src_lang, tgt_lang, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
+        if retrieval_path is not None:
+            assert lev_path is not None
+            loader_from_path = load_data_iter_and_lev_from_path
+            if train:
+                self.train, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "train", src_lang, tgt_lang, retrieval_path, lev_path, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
+            else:
+                self.train = None
+            if valid:
+                self.valid, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "valid", src_lang, tgt_lang, retrieval_path, lev_path, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
+            else:
+                self.valid = None
+            if test:
+                self.test, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "test", src_lang, tgt_lang, retrieval_path, lev_path, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
+            else:
+                self.test = None
         else:
-            self.train = None
-        if valid:
-            self.valid, self.dict = load_data_iter_from_path(dataset_path, "valid", src_lang, tgt_lang, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
-        else:
-            self.valid = None
-        if test:
-            self.test, self.dict = load_data_iter_from_path(dataset_path, "test", src_lang, tgt_lang, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
-        else:
-            self.test = None
+            if train:
+                self.train, self.dict = load_data_iter_from_path(dataset_path, "train", src_lang, tgt_lang, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
+            else:
+                self.train = None
+            if valid:
+                self.valid, self.dict = load_data_iter_from_path(dataset_path, "valid", src_lang, tgt_lang, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
+            else:
+                self.valid = None
+            if test:
+                self.test, self.dict = load_data_iter_from_path(dataset_path, "test", src_lang, tgt_lang, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences)
+            else:
+                self.test = None
         
     # def setup(self, *args, **kwargs):
     #     ...

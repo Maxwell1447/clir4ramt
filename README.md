@@ -28,10 +28,16 @@ conda install -c pytorch -c nvidia faiss-gpu=1.8.0
 python -m clir.train.trainer fit --config=experiments/configs/{config}.yaml
 ```
 
-## indexing (target side)
+## indexing
 
 ```bash
 python -m clir.index.index --config experiments/configs/{config}.yaml
+```
+
+## retrieving
+
+```bash
+python -m clir.retrieve.retrieve --config experiments/configs/{config}.yaml
 ```
 
 ## retrieval

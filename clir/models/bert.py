@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # """Copied from transformers because not accessible otherwise."""
 # import math
-# from typing import Optional, Tuple
+from typing import Optional, Tuple
 
 from torch import nn
 import torch

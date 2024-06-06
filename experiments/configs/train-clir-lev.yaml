@@ -8,6 +8,15 @@ trainer:
   precision: 32
   logger: true
   callbacks:
+  - class_path: pytorch_lightning.callbacks.early_stopping.EarlyStopping
+    init_args:
+      monitor: eval/loss
+      patience: 3
+  - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+    init_args:
+      save_top_k: 1
+      monitor: eval/loss
+      save_last: true
   - class_path: pytorch_lightning.callbacks.LearningRateMonitor
     init_args:
       logging_interval: step
@@ -22,7 +31,7 @@ trainer:
   limit_test_batches: null
   limit_predict_batches: null
   overfit_batches: 0.0
-  val_check_interval: 10
+  val_check_interval: 5000
   check_val_every_n_epoch: 1
   num_sanity_val_steps: null
   log_every_n_steps: 100
@@ -42,12 +51,12 @@ trainer:
   plugins: null
   sync_batchnorm: false
   reload_dataloaders_every_n_epochs: 1
-  default_root_dir: experiments/logs/train-debug
+  default_root_dir: experiments/logs/train-clir
 ckpt_path: null
 model:
   class_path: clir.train.trainee.BiEncoder
   init_args:
-    model_name_or_path: experiments/models/ls-0.1-norm-temp+-bow-0.1-init+.pt
+    model_name_or_path: null
     vocab_size: 34852
     pad_token_id: 1
     type_vocab_size: 1
@@ -71,19 +80,16 @@ model:
     bow_loss: false
     bow_loss_factor: null
     lev_train: true
-    alpha: 0.6
 data:
   class_path: clir.train.data.DataModuleMMap
   init_args:
-    dict_path: test/dict.en.txt
-    dataset_path: test
+    dict_path: experiments/data/multidomain/data-bin/dict.en.txt
+    dataset_path: experiments/data/multidomain/data-bin
     src_lang: en
     tgt_lang: fr
     train: true
     valid: true
     test: false
     max_positions: 256
-    max_tokens: 3000
-    max_sentences: 100
-    retrieval_path: test/ids.npy
-    lev_path: test/lev.npy
+    max_tokens: 6000
+    max_sentences: 128

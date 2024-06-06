@@ -17,7 +17,9 @@ from transformers import BertModel
 # from clir.models import BertWithCustomEmbedding
 
 from ..data.loading import get_pretrained
-from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss, BOWModule
+from ..data.data import ContrastiveDataset
+from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss, MSELevenshteinLoss
+from ..models import BOWModule
 from .metrics import *
 
 
@@ -41,6 +43,8 @@ class BiEncoder(pl.LightningModule):
         temp_lr=None,
         bow_lr=1e-3,
         bow_multiplicator=1.0,
+        lev_train=False,
+        alpha=0.6,
         **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -51,7 +55,7 @@ class BiEncoder(pl.LightningModule):
         self.lr_scheduler = lr_scheduler
         self.sqrt_lr_update_factor = sqrt_lr_update_factor
         self.normalize = normalize
-        if self.normalize:
+        if self.normalize and not lev_train:
             self.temp = nn.parameter.Parameter(torch.tensor(3.0))
         self.lr = lr
         self.betas = betas
@@ -70,40 +74,47 @@ class BiEncoder(pl.LightningModule):
             type_vocab_size=type_vocab_size,
         )
         self.tgt_model = self.src_model
-        
-        # loss and metrics
-        self.log_softmax = nn.LogSoftmax(1)
-        if self.label_smoothing < 1e-4:
-            self.loss_fct = nn.NLLLoss(reduction='mean')
-        else:
-            self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
 
-        self.bow_multiplicator = bow_multiplicator
-        if bow_loss and bow_loss_factor > 0.0:
-            self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow, bow_multiplicator=self.bow_multiplicator)
-            self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow, bow_multiplicator=self.bow_multiplicator)
-            self.bow_metric_src_tgt = BOWRecall()
-            self.bow_metric_tgt_src = BOWRecall()
-        else:
-            self.bow_loss_src_tgt = None
-            self.bow_loss_tgt_src = None
-            self.bow_metric_src_tgt = None
-            self.bow_metric_tgt_src = None
-        self.metrics = MetricCollection([
-            InBatchAccuracy(),
-            InBatchMRR()
-        ])
-        self.temp_lr = temp_lr
-        if self.temp_lr is None:
+        self.second_stage = lev_train
+        # loss and metrics
+        if self.second_stage: # Second stage Training
+            # self.num_sim = num_sim
+            self.max_tokens = 1
+            self.lev_loss = MSELevenshteinLoss(alpha=alpha)
             self.param_groups = self.parameters()
-        else:
-            self.param_groups = [
-                {"params": [self.temp], "lr": self.temp_lr},
-                {"params": self.src_model.parameters()},
-            ]
+        else: # First Stage Training
+            self.log_softmax = nn.LogSoftmax(1)
+            if self.label_smoothing < 1e-4:
+                self.loss_fct = nn.NLLLoss(reduction='mean')
+            else:
+                self.loss_fct = LabelSmoothingLoss(self.label_smoothing)
+
+            self.bow_multiplicator = bow_multiplicator
             if bow_loss and bow_loss_factor > 0.0:
-                self.param_groups.append({"params": self.bow_loss_src_tgt.parameters(), "lr": bow_lr})
-                self.param_groups.append({"params": self.bow_loss_tgt_src.parameters(), "lr": bow_lr})
+                self.bow_loss_src_tgt = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow, bow_multiplicator=self.bow_multiplicator)
+                self.bow_loss_tgt_src = BOWModule(config.hidden_size, vocab_size, factor=bow_loss_factor, label_smoothing=label_smoothing_bow, bow_multiplicator=self.bow_multiplicator)
+                self.bow_metric_src_tgt = BOWRecall()
+                self.bow_metric_tgt_src = BOWRecall()
+            else:
+                self.bow_loss_src_tgt = None
+                self.bow_loss_tgt_src = None
+                self.bow_metric_src_tgt = None
+                self.bow_metric_tgt_src = None
+            self.metrics = MetricCollection([
+                InBatchAccuracy(),
+                InBatchMRR()
+            ])
+            self.temp_lr = temp_lr
+            if self.temp_lr is None:
+                self.param_groups = self.parameters()
+            else:
+                self.param_groups = [
+                    {"params": [self.temp], "lr": self.temp_lr},
+                    {"params": self.src_model.parameters()},
+                ]
+                if bow_loss and bow_loss_factor > 0.0:
+                    self.param_groups.append({"params": self.bow_loss_src_tgt.parameters(), "lr": bow_lr})
+                    self.param_groups.append({"params": self.bow_loss_tgt_src.parameters(), "lr": bow_lr})
         
         self.post_init()
 
@@ -125,19 +136,35 @@ class BiEncoder(pl.LightningModule):
         ----------
         input: dict
         """
-        # print("input\n", input)
         # embed questions and contexts
-        src_out = self.src_model(**input["src"])
-        tgt_out = self.tgt_model(**input["tgt"])
-        # print(src_out)
-        # print(src_out.last_hidden_state[:, 0, :])
+        src_out = self.src_model(**input["src"]).last_hidden_state[:, 0, :]
+        if self.second_stage:
+            # DIVIDE IN k FORWARD PASS
+            # ACC. TO max_tokens
+            self.max_tokens = max(self.max_tokens, input["src"]["input_ids"].shape[0] * input["src"]["input_ids"].shape[1])
+            # print("src", input["src"]["input_ids"].shape)
+            # print("tgt", input["tgt"]["input_ids"].shape)
+            # print("max_tokens", self.max_tokens)
+            tgt_list, sorted_idx = ContrastiveDataset.divide_in_k(
+                input["tgt"]["input_ids"],
+                pad=self.pad_token_id,
+                max_tokens=self.max_tokens)
+            # for tgt in tgt_list:
+            #     print(">> tgt", tgt.shape)
+            tgt_out = [
+                self.tgt_model(toks, toks.ne(self.pad_token_id)).last_hidden_state[:, 0, :]
+                for toks in tgt_list
+            ]
+            tgt_out = ContrastiveDataset.reconsitute_from_k(tgt_out, sorted_idx)
+        else:
+            tgt_out = self.tgt_model(**input["tgt"]).last_hidden_state[:, 0, :]
         if self.normalize:
             return dict(
-                src=nn.functional.normalize(src_out.last_hidden_state[:, 0, :]),
-                tgt=nn.functional.normalize(tgt_out.last_hidden_state[:, 0, :])
+                src=nn.functional.normalize(src_out),
+                tgt=nn.functional.normalize(tgt_out)
             )
 
-        return dict(src=src_out.last_hidden_state[:, 0, :], tgt=tgt_out.last_hidden_state[:, 0, :])
+        return dict(src=src_out, tgt=tgt_out)
 
     def step(self, inputs, _):
         """
@@ -151,6 +178,8 @@ class BiEncoder(pl.LightningModule):
         -----
         This means that the whole representations of questions and contexts, and their similarity matrix, must fit on a single GPU.
         """
+        if self.second_stage:
+            levs = inputs["levs"]
         if "net_input" in inputs:
             inputs = self.make_input_from_fairseq(inputs)
         outputs = self(inputs)
@@ -158,32 +187,44 @@ class BiEncoder(pl.LightningModule):
         ##### FOR MULTIPROCESSING sync
         src_out = self.all_gather(outputs["src"], sync_grads=True)
         tgt_out = self.all_gather(outputs["tgt"], sync_grads=True)
-        
         # reshape after all_gather
         if src_out.ndim > 2:
             n_gpus, N, _ = src_out.shape
             src_out = src_out.view(n_gpus*N, -1)
+            n_gpus, N, _ = tgt_out.shape
             tgt_out = tgt_out.view(n_gpus*N, -1)
 
         # compute similarity
-        # print("shape src out", src_out.shape)
-        similarities = src_out @ tgt_out.T  # (B, B)
-        assert similarities.size(0) == similarities.size(1)
-        if self.normalize:
-            similarities *= torch.exp(self.temp)
-        log_probs = self.log_softmax(similarities)
-
-        loss_ibns = self.loss_fct(log_probs, torch.arange(len(log_probs), device=log_probs.device))
-        loss = loss_ibns
-        if self.bow_loss_src_tgt is not None:
-            out_src_tgt = self.bow_loss_src_tgt(src_out, inputs["tgt"]["input_ids"])
-            loss += out_src_tgt["loss"]
-            out_tgt_src = self.bow_loss_tgt_src(tgt_out, inputs["src"]["input_ids"])
-            loss += out_tgt_src["loss"]
+        if self.second_stage:
+            # src_out: B x d
+            # tgt_out: B x k x d
+            # levs: B x k
+            # k = tgt_out.shape[0] / src_out.shape[0]
+            tgt_out = tgt_out.view(src_out.shape[0], -1, src_out.shape[1])
+            # B x k
+            similarities = torch.einsum('bd,bid->bi', src_out, tgt_out)
+            # alpha = 0.6
+            # pseudo_lev = torch.clamp(similarities - alpha, min=0) / (1 - alpha)
+            loss = self.lev_loss(similarities, levs)
+            return dict(loss=loss)
         else:
-            out_src_tgt = None
-            out_tgt_src = None
-        return dict(loss=loss, ibns_loss=loss_ibns, bow_src_tgt=out_src_tgt, bow_tgt_src=out_tgt_src, log_probs=log_probs)
+            similarities = src_out @ tgt_out.T  # (B, B)
+            assert similarities.size(0) == similarities.size(1)
+            if self.normalize:
+                similarities *= torch.exp(self.temp)
+            log_probs = self.log_softmax(similarities)
+
+            loss_ibns = self.loss_fct(log_probs, torch.arange(len(log_probs), device=log_probs.device))
+            loss = loss_ibns
+            if self.bow_loss_src_tgt is not None:
+                out_src_tgt = self.bow_loss_src_tgt(src_out, inputs["tgt"]["input_ids"])
+                loss += out_src_tgt["loss"]
+                out_tgt_src = self.bow_loss_tgt_src(tgt_out, inputs["src"]["input_ids"])
+                loss += out_tgt_src["loss"]
+            else:
+                out_src_tgt = None
+                out_tgt_src = None
+            return dict(loss=loss, ibns_loss=loss_ibns, bow_src_tgt=out_src_tgt, bow_tgt_src=out_tgt_src, log_probs=log_probs)
                     
     def eval_step(self, inputs, batch_idx):
         model_outputs = self.step(inputs, batch_idx)
@@ -212,11 +253,11 @@ class BiEncoder(pl.LightningModule):
         outputs = self.step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("train/loss", outputs['loss'], batch_size=bsz)
-        if outputs['bow_src_tgt'] is not None:
+        if 'bow_src_tgt' in outputs and outputs['bow_src_tgt'] is not None:
             self.log("train/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
             self.log("train/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
             self.log("train/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
-        if self.normalize:
+        if self.normalize and not self.second_stage:
             self.log("train/temperature", self.temp.data, on_step=True)
         return outputs
     
@@ -225,7 +266,7 @@ class BiEncoder(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
-        if outputs['bow_src_tgt'] is not None:
+        if 'bow_src_tgt' in outputs and outputs['bow_src_tgt'] is not None:
             self.log("eval/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
             self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
             self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
@@ -233,8 +274,9 @@ class BiEncoder(pl.LightningModule):
             self.bow_metric_tgt_src(outputs['bow_tgt_src']['logprobs'], outputs['bow_tgt_src']['target'])
             self.log("eval/bow_acc_src_tgt", self.bow_metric_src_tgt, on_step=False, on_epoch=True)
             self.log("eval/bow_acc_tgt_src", self.bow_metric_tgt_src, on_step=False, on_epoch=True)
-        self.metrics(outputs['log_probs'])
-        self.log_dict(self.metrics, on_step=False, on_epoch=True)
+        if self.metrics is not None:
+            self.metrics(outputs['log_probs'])
+            self.log_dict(self.metrics, on_step=False, on_epoch=True)
         return outputs
     
     def test_step(self, batch, batch_idx):
@@ -242,9 +284,9 @@ class BiEncoder(pl.LightningModule):
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
         self.log("test/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
-        metrics = batch_metrics(outputs['log_probs'])
-        for key in metrics:
-            self.log(f"eval/{key}", metrics[key], batch_size=bsz, sync_dist=True)
+        # metrics = batch_metrics(outputs['log_probs'])
+        # for key in metrics:
+        #     self.log(f"eval/{key}", metrics[key], batch_size=bsz, sync_dist=True)
         return outputs
     
     def eval_epoch_end(self, *args, **kwargs):
@@ -293,13 +335,13 @@ class BiEncoder(pl.LightningModule):
         
     def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure):
         super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure)
-        if self.normalize:
+        if self.normalize and not self.second_stage:
             self.temp.data = torch.clip(self.temp, -4.6, 6)
         
     
     #####################################################
     # gradient checkpointing: adapted from transformers #
-    #####################################out_tgt_src################
+    #####################################################
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):
             module.gradient_checkpointing = value

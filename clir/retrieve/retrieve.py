@@ -24,9 +24,13 @@ def search(query, index, device, not_same_index, k):
             np.arange(len(I))[:, np.newaxis],
             np.argsort(I == np.arange(len(I))[:, np.newaxis], kind='stable')
         ][:, :-1]
+        D = D[
+            np.arange(len(I))[:, np.newaxis],
+            np.argsort(I == np.arange(len(I))[:, np.newaxis], kind='stable')
+        ][:, :-1]
     else:
         D, I = index.search(query, k)
-    return I
+    return D, I
 
 
 def retrieve_index_to_index(index_source, index_path, device, not_same_index, k, ivf):
@@ -37,9 +41,9 @@ def retrieve_index_to_index(index_source, index_path, device, not_same_index, k,
     d_src = np.load(index_source).astype(np.float32)
     d_tgt = np.load(index_path).astype(np.float32)
     ####### LOW MEMORY
-    N = len(d_src)
-    d_src = d_src[:N//2]
-    d_tgt = d_tgt[:N//2]
+    # N = len(d_src)
+    # d_src = d_src[:N//2]
+    # d_tgt = d_tgt[:N//2]
     #######
     # print((d_src == d_tgt).all(-1).sum()/ len(d_src))
     # d_src = np.random.rand(100, 128).astype(np.float32)
@@ -58,10 +62,10 @@ def retrieve_index_to_index(index_source, index_path, device, not_same_index, k,
     index.add(d_tgt)
     t2 = time.time()
     print("indexing:", t2 - t1)
-    res = search(d_src, index, device, not_same_index, k)
+    scores, res = search(d_src, index, device, not_same_index, k)
     t3 = time.time()
     print("search:", t3 - t2)
-    return res
+    return scores, res
 
 
 def retrieve_source_to_index(
@@ -77,23 +81,24 @@ def retrieve_source_to_index(
     del module
     dataloader, dic = load_monolingual_corpus(**data)
     outs = list()
+    scores = list()
     with torch.no_grad():
         for samples in iter(dataloader):
             tokens = samples["tokens"].to(device)
-            outs.append(
-                search(
-                    model(
-                        input_ids=tokens,
-                        attention_mask=tokens.ne(dic.pad())
-                    ).last_hidden_state[:, 0, :].cpu().contiguous().numpy(),
-                    index,
-                    device,
-                    not_same_index,
-                    k
-                )
+            score, ids = search(
+                model(
+                    input_ids=tokens,
+                    attention_mask=tokens.ne(dic.pad())
+                ).last_hidden_state[:, 0, :].cpu().contiguous().numpy(),
+                index,
+                device,
+                not_same_index,
+                k
             )
+            outs.append(ids)
+            scores.append(score)
             break
-    return np.concatenate(outs)
+    return np.concatenate(scores), np.concatenate(outs)
 
 def retrieverCli(data=None, checkpoint=None, model_kwargs=None, device="cpu", index_path=None, index_source=None, not_same_index=False, k=1, ivf=False, save_path=None, save_name="-", **kwargs):
     """
@@ -107,9 +112,9 @@ def retrieverCli(data=None, checkpoint=None, model_kwargs=None, device="cpu", in
         assert torch.cuda.is_available(), "No cuda device found"
     print(os.path.exists(index_source), index_source)
     if index_source is not None and os.path.exists(index_source):
-        out = retrieve_index_to_index(index_source, index_path, device, not_same_index, k, ivf)
+        scores, ids = retrieve_index_to_index(index_source, index_path, device, not_same_index, k, ivf)
     else:
-        out = retrieve_source_to_index(data=data, model_kwargs=model_kwargs, checkpoint=checkpoint, index_path=index_path, device=device, not_same_index=not_same_index, k=k)
+        scores, ids = retrieve_source_to_index(data=data, model_kwargs=model_kwargs, checkpoint=checkpoint, index_path=index_path, device=device, not_same_index=not_same_index, k=k)
     # print(out[:5])
     if save_path is not None and not os.path.isdir(save_path):
         os.mkdir(save_path)
@@ -123,13 +128,15 @@ def retrieverCli(data=None, checkpoint=None, model_kwargs=None, device="cpu", in
         save_name += "-ivf"
     if not_same_index:
         save_name += "-no-same"
-    np.save(os.path.join(save_path, f"indices{save_name}.npy"), out)
+    np.save(os.path.join(save_path, f"indices{save_name}.npy"), ids)
+    np.save(os.path.join(save_path, f"scores{save_name}.npy"), scores)
     
 
 
 def parser():
     args = argparse.ArgumentParser()
     args.add_argument("--config", required=True, help="YAML file path")
+    args.add_argument("--name", default="ALL", help="domain dataset")
     return args.parse_args()
 
 def main():
@@ -137,6 +144,24 @@ def main():
     assert os.path.exists(args.config)
     with open(args.config) as f:
         config = yaml.safe_load(f)
+    if args.name != "ALL":
+        config["data"]["data_path"] = os.path.join(
+            os.path.dirname(config["data"]["data_path"]),
+            args.name,
+            os.path.basename(config["data"]["data_path"]))
+        config["index_path"] = os.path.join(
+            os.path.dirname(config["index_path"]),
+            args.name,
+            os.path.basename(config["index_path"]))
+        config["index_source"] = os.path.join(
+            os.path.dirname(config["index_source"]),
+            args.name,
+            os.path.basename(config["index_source"]))
+        config["save_path"] = os.path.join(
+            config["save_path"],
+            args.name)
+        if not os.path.isdir(config["save_path"]):
+            os.mkdir(config["save_path"])
     return retrieverCli(**config)
 
 if __name__ == "__main__":

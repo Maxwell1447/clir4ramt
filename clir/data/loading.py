@@ -10,6 +10,7 @@ import string
 
 import transformers
 # from clir.models import BertWithCustomEmbedding
+import torch
 from transformers import BertModel, XLMModel, XLMRobertaModel
 
 ClassModel = BertModel
@@ -24,7 +25,8 @@ def get_pretrained(pretrained_model_name_or_path, **kwargs):
         model = ClassModel(config)
         print(f"Randomly initialized model:\n{model}")
     else:
-        model = transformers.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        model = torch.load(pretrained_model_name_or_path)
+        # model = transformers.from_pretrained(pretrained_model_name_or_path, **kwargs)
         config = None
     return model, config
 

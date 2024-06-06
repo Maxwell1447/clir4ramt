@@ -64,6 +64,7 @@ def indexerCli(data=None, checkpoint=None, side="target", model_kwargs=None, dev
 def parser():
     args = argparse.ArgumentParser()
     args.add_argument("--config", required=True, help="YAML file path")
+    args.add_argument("--name", default="ALL", help="domain dataset")
     return args.parse_args()
 
 def main():
@@ -71,6 +72,17 @@ def main():
     assert os.path.exists(args.config)
     with open(args.config) as f:
         config = yaml.safe_load(f)
+    if args.name != "ALL":
+        config["data"]["data_path"] = os.path.join(
+            os.path.dirname(config["data"]["data_path"]),
+            args.name,
+            os.path.basename(config["data"]["data_path"]))
+        config["index_dir"] = os.path.join(
+            config["index_dir"],
+            args.name)
+        if not os.path.isdir(config["index_dir"]):
+            os.mkdir(config["index_dir"])
+
     return indexerCli(**config)
 
 if __name__ == "__main__":
