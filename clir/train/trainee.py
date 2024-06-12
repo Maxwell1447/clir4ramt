@@ -44,7 +44,7 @@ class BiEncoder(pl.LightningModule):
         bow_lr=1e-3,
         bow_multiplicator=1.0,
         lev_train=False,
-        alpha=0.6,
+        divide_in_k=False,
         **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -76,12 +76,18 @@ class BiEncoder(pl.LightningModule):
         self.tgt_model = self.src_model
 
         self.second_stage = lev_train
+        self.divide_in_k = divide_in_k
         # loss and metrics
         if self.second_stage: # Second stage Training
             # self.num_sim = num_sim
             self.max_tokens = 1
-            self.lev_loss = MSELevenshteinLoss(alpha=alpha)
+            self.lev_loss = MSELevenshteinLoss()
             self.param_groups = self.parameters()
+            self.param_groups = [
+                {"params": self.lev_loss.parameters(), "lr": temp_lr},
+                {"params": self.src_model.parameters()},
+            ]
+            self.metrics = MetricCollection([InBatchAccuracyContrastive()])
         else: # First Stage Training
             self.log_softmax = nn.LogSoftmax(1)
             if self.label_smoothing < 1e-4:
@@ -138,10 +144,16 @@ class BiEncoder(pl.LightningModule):
         """
         # embed questions and contexts
         src_out = self.src_model(**input["src"]).last_hidden_state[:, 0, :]
-        if self.second_stage:
+        self.max_tokens = max(self.max_tokens, input["src"]["input_ids"].shape[0] * input["src"]["input_ids"].shape[1])
+        if self.second_stage and (
+            self.divide_in_k or (
+                input["tgt"]["input_ids"].shape[0] * 
+                input["tgt"]["input_ids"].shape[1] > 
+                self.max_tokens * 0.9
+            )
+        ):
             # DIVIDE IN k FORWARD PASS
             # ACC. TO max_tokens
-            self.max_tokens = max(self.max_tokens, input["src"]["input_ids"].shape[0] * input["src"]["input_ids"].shape[1])
             # print("src", input["src"]["input_ids"].shape)
             # print("tgt", input["tgt"]["input_ids"].shape)
             # print("max_tokens", self.max_tokens)
@@ -206,7 +218,7 @@ class BiEncoder(pl.LightningModule):
             # alpha = 0.6
             # pseudo_lev = torch.clamp(similarities - alpha, min=0) / (1 - alpha)
             loss = self.lev_loss(similarities, levs)
-            return dict(loss=loss)
+            return dict(loss=loss, similarities=similarities, levs=levs.view(similarities.shape))
         else:
             similarities = src_out @ tgt_out.T  # (B, B)
             assert similarities.size(0) == similarities.size(1)
@@ -230,6 +242,8 @@ class BiEncoder(pl.LightningModule):
         model_outputs = self.step(inputs, batch_idx)
         # metrics = batch_retrieval(model_outputs['log_probs'])
         # return dict(loss=model_outputs['loss'])
+        # print(model_outputs["loss"])
+        assert not model_outputs["loss"].isnan()
         return model_outputs
                 
     # should be called at the end of each subclass __init__
@@ -239,8 +253,8 @@ class BiEncoder(pl.LightningModule):
         if self.gradient_checkpointing:
             self.gradient_checkpointing_enable()
         
-    def eval_step(self, batch, batch_idx):
-        return self.step(batch, batch_idx)
+    # def eval_step(self, batch, batch_idx):
+    #     return self.step(batch, batch_idx)
     
     def log(self, name, value, **kwargs):
         """Ignores None values."""
@@ -259,23 +273,29 @@ class BiEncoder(pl.LightningModule):
             self.log("train/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
         if self.normalize and not self.second_stage:
             self.log("train/temperature", self.temp.data, on_step=True)
+        if self.second_stage:
+            self.log("alpha", self.lev_loss.get_normalized_alpha(), on_step=True, batch_size=1, on_epoch=False, sync_dist=False)
+            self.log("beta", self.lev_loss.get_normalized_beta(), on_step=True, batch_size=1, on_epoch=False, sync_dist=False)
         return outputs
     
     def validation_step(self, batch, batch_idx):
         """Step and log validation metrics"""
         outputs = self.eval_step(batch, batch_idx)
         bsz = batch["nsentences"] if "nsentences" in batch else None
-        self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True)
+        self.log("eval/loss", outputs['loss'], batch_size=bsz, sync_dist=True, on_step=False, on_epoch=True)
         if 'bow_src_tgt' in outputs and outputs['bow_src_tgt'] is not None:
-            self.log("eval/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True)
-            self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True)
-            self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
+            self.log("eval/ibns_loss", outputs['ibns_loss'], batch_size=bsz, sync_dist=True, on_step=False, on_epoch=True)
+            self.log("eval/bow_loss_src_tgt", outputs['bow_src_tgt']['loss'], batch_size=bsz, sync_dist=True, on_step=False, on_epoch=True)
+            self.log("eval/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True, on_step=False, on_epoch=True)
             self.bow_metric_src_tgt(outputs['bow_src_tgt']['logprobs'], outputs['bow_src_tgt']['target'])
             self.bow_metric_tgt_src(outputs['bow_tgt_src']['logprobs'], outputs['bow_tgt_src']['target'])
             self.log("eval/bow_acc_src_tgt", self.bow_metric_src_tgt, on_step=False, on_epoch=True)
             self.log("eval/bow_acc_tgt_src", self.bow_metric_tgt_src, on_step=False, on_epoch=True)
         if self.metrics is not None:
-            self.metrics(outputs['log_probs'])
+            if self.second_stage:
+                self.metrics(outputs['similarities'], outputs['levs'])
+            else:
+                self.metrics(outputs['log_probs'])
             self.log_dict(self.metrics, on_step=False, on_epoch=True)
         return outputs
     

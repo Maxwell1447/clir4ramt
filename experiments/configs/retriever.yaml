@@ -1,17 +1,17 @@
 data:
-  data_path: experiments/data/multidomain/data-bin/train.en-fr.en
+  data_path: experiments/data/multidomain/data-bin/valid.en-fr.en
   dict_path: experiments/data/multidomain/data-bin/dict.fr.txt
   batch_size: 100
 device: cuda
-index_path: experiments/data/multidomain/index/ls-0.1-norm-temp+.train.fr.npy
-index_source: experiments/data/multidomain/index/ls-0.1-norm-temp+.train.en.npy
-save_path: experiments/data/multidomain/retrieval/ls-0.1-norm-temp+
+index_path: experiments/data/multidomain/index/ls-0.1-norm-temp+-bow-0.1-init+.valid.fr.npy
+index_source: experiments/data/multidomain/index/ls-0.1-norm-temp+-bow-0.1-init+.valid.en.npy
+save_path: experiments/data/multidomain/retrieval/ls-0.1-norm-temp+-bow-0.1-init+
 not_same_index: false
 k: 5
 ivf: false
-name: ls-0.1-norm-temp+
-save_name: train-full
-checkpoint: experiments/logs/train-clir/lightning_logs/ls-0.1-norm-temp+/checkpoints/last.ckpt
+name: ls-0.1-norm-temp+-bow-0.1-init+
+save_name: valid-self
+checkpoint: experiments/logs/train-clir/lightning_logs/ls-0.1-norm-temp+-bow-0.1-init+/checkpoints/last.ckpt
 model_kwargs:
   vocab_size: 34852
   type_vocab_size: 1

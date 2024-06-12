@@ -8,6 +8,11 @@ trainer:
   precision: 32
   logger: true
   callbacks:
+  - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+    init_args:
+      save_top_k: 1
+      monitor: eval/loss
+      save_last: true
   - class_path: pytorch_lightning.callbacks.LearningRateMonitor
     init_args:
       logging_interval: step
@@ -25,7 +30,7 @@ trainer:
   val_check_interval: 10
   check_val_every_n_epoch: 1
   num_sanity_val_steps: null
-  log_every_n_steps: 100
+  log_every_n_steps: 10
   enable_checkpointing: null
   enable_progress_bar: true
   enable_model_summary: null
@@ -56,7 +61,7 @@ model:
     warmup_steps: 5000
     lr_scheduler: isqrt
     sqrt_lr_update_factor: null
-    lr: 2.0e-05
+    lr: 2.0e-04
     betas:
     - 0.9
     - 0.999
@@ -65,13 +70,13 @@ model:
     label_smoothing: 0.1
     label_smoothing_bow: 0.1
     normalize: true
-    temp_lr: 1e-2
+    temp_lr: 9e-1
     bow_lr: 1e-2
     bow_multiplicator: null
     bow_loss: false
     bow_loss_factor: null
     lev_train: true
-    alpha: 0.6
+    divide_in_k: false
 data:
   class_path: clir.train.data.DataModuleMMap
   init_args:
@@ -82,8 +87,11 @@ data:
     train: true
     valid: true
     test: false
-    max_positions: 256
-    max_tokens: 3000
-    max_sentences: 100
-    retrieval_path: test/ids.npy
-    lev_path: test/lev.npy
+    max_positions: 220
+    max_tokens: 2000
+    max_sentences: 128
+    retrieval_path: test/indices-cat-valid-self-k=5.npy
+    lev_path: test/lev-cat-valid-self-k=5.npy
+    retrieval_path_valid: test/indices-cat-valid-self-k=5.npy
+    lev_path_valid: test/lev-cat-valid-self-k=5.npy
+    max_lev: 3

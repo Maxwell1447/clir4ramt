@@ -8,9 +8,11 @@ from fairseq.data import Dictionary, FairseqDataset
 from torch.utils.data import DataLoader, Dataset
 from functools import partial
 from typing import *
+import time
+import random
 
 
-def load_data_iter_and_lev_from_path(data_path, dict_path, split, src, tgt, retrieval_path, lev_path, max_positions=1024, max_tokens=2048, max_sentences=100):
+def load_data_iter_and_lev_from_path(data_path, dict_path, split, src, tgt, retrieval_path, lev_path, max_positions=1024, max_tokens=2048, max_sentences=100, max_lev=2, random_select=False):
     mono_dict = Dictionary.load(dict_path)
     # print(data_path, f"{split}.{src}-{tgt}.{src}")
     src_dataset = data_utils.load_indexed_dataset(
@@ -22,19 +24,19 @@ def load_data_iter_and_lev_from_path(data_path, dict_path, split, src, tgt, retr
     assert src_dataset is not None
     src_dataset = PrependTokenDataset(src_dataset, mono_dict.bos())
     tgt_dataset = data_utils.load_indexed_dataset(
-        os.path.join(data_path, f"{split}.{src}-{tgt}.{tgt}"),
+        os.path.join(data_path, f"train.{src}-{tgt}.{tgt}"),
         mono_dict,
         "mmap",
         combine=True,
     )
     tgt_dataset = PrependTokenDataset(tgt_dataset, mono_dict.bos())
     
-    retrieval_ids = np.load(retrieval_path)
+    retrieval_ids = np.load(retrieval_path)[:, :max_lev].copy()
     retrieval_ids = torch.from_numpy(retrieval_ids)
-    levs = np.load(lev_path)
+    levs = np.load(lev_path)[:, :max_lev].copy()
     levs = torch.from_numpy(levs).float()
     # make composite dataset
-    dataset = ContrastiveDataset(src_dataset, tgt_dataset, retrieval_ids, levs, max_length=max_positions, eos=mono_dict.eos(), pad=mono_dict.pad())
+    dataset = ContrastiveDataset(src_dataset, tgt_dataset, retrieval_ids, levs, max_length=max_positions, eos=mono_dict.eos(), pad=mono_dict.pad(), no_train=(split != "train"), random_select=random_select)
 
     return load_epoch_iter(
         dataset,
@@ -190,7 +192,7 @@ def collater(pad_idx, dict_list, **kwargs):
     return out
 
 class ContrastiveDataset(FairseqDataset):
-    def __init__(self, src_dataset, tgt_dataset, indices, levs, max_length=512, eos=2, pad=1):
+    def __init__(self, src_dataset, tgt_dataset, indices, levs, max_length=512, eos=2, pad=1, no_train=False, random_select=False):
         self.src_dataset = src_dataset
         self.tgt_dataset = tgt_dataset
         self.levs = levs
@@ -212,7 +214,8 @@ class ContrastiveDataset(FairseqDataset):
         ys = list()
         levs_at_ids = list()
         for i in range(self.levs.shape[1]):
-            y = self.src_dataset[self.indices[idx, i]]
+            ret_idx = self.indices[idx, i] % len(self.tgt_dataset)
+            y = self.tgt_dataset[ret_idx]
             if len(y) > self.max_length:
                 y = y[:self.max_length]
                 y[-1] = self.eos
@@ -246,11 +249,12 @@ class ContrastiveDataset(FairseqDataset):
             e for dic in samples for e in dic["target"]
         ], self.pad, **kwargs)
         out["levs"] = torch.cat([dic["levs"] for dic in samples])
+        out["nsentences"] = len(samples)
         return out
 
 
     @staticmethod
-    def split_in_chunks(xs, max_tokens):
+    def split_in_chunks_(xs, max_tokens):
         upper = len(xs)
         ii = list()
         # for i in range(k):
@@ -275,14 +279,30 @@ class ContrastiveDataset(FairseqDataset):
             if (upper == 0):
                 break
             i += 1
-            
+        if len(ii) == 0:
+            ii.append(upper)
         ii.append(0)
         return torch.tensor(ii[::-1], dtype=torch.int32)
         
+    @staticmethod
+    def split_in_chunks(xs, max_tokens):
+        upper = len(xs)
+        ii = list()
+        height = xs[upper - 1].item()
+        while height * upper > max_tokens / 2 and upper > 0:
+            ii.append(upper)
+            upper -= int(max_tokens / height)
+            height = xs[upper - 1].item()
+        if len(ii) == 0:
+            ii.append(upper)
+        ii.append(0)
+        return ii[::-1]
+        # return [0, len(xs) // 2, len(xs)]
 
     @staticmethod
     def divide_in_k(ys, pad=1, max_tokens=3000):
-        lens = ys.ne(pad).sum(-1)
+        # t1 = time.time()
+        lens = ys.ne(pad).sum(-1) #.cpu()
         sorted_lens, sorted_idx = lens.sort()
         split_ids = ContrastiveDataset.split_in_chunks(sorted_lens, max_tokens)
         # print("split_ids", split_ids)
@@ -294,6 +314,8 @@ class ContrastiveDataset(FairseqDataset):
                 new_y = ys[sorted_idx][split_ids[j]:split_ids[j+1], :max_len]
                 new_ys.append(new_y)
         assert sum([len(y) for y in new_ys]) == len(ys), f"{sum([len(y) for y in new_ys])} vs {len(ys)}"
+        # t2 = time.time()
+        # print("Dt =", t2 - t1)
         return new_ys, sorted_idx
 
     @staticmethod

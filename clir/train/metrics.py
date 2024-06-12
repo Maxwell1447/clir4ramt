@@ -60,3 +60,21 @@ class BOWRecall(Metric):
 
     def compute(self):
         return self.hits / self.total
+
+class InBatchAccuracyContrastive(Metric):
+    def __init__(self, dist_sync_on_step=False):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.add_state("hits_at_rank", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
+
+    def update(self, similarities: torch.Tensor, levs: torch.Tensor):
+        bsz, k = similarities.shape
+        self.hits_at_rank += (
+            similarities.argsort(-1, descending=True) == 
+            levs.argsort(-1, descending=True)
+        ).sum()
+        self.total += bsz * k
+
+    def compute(self):
+        return self.hits_at_rank / self.total
