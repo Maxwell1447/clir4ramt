@@ -65,21 +65,21 @@ class DataModuleMMap(pl.LightningDataModule):
     max_position: int, optional
     max_sentences: int, optional
     """
-    def __init__(self, dict_path, dataset_path, src_lang, tgt_lang, train=True, valid=True, test=False, max_positions=1024, max_tokens=2048, max_sentences=100, retrieval_path=None, lev_path=None, retrieval_path_valid=None, lev_path_valid=None, max_lev=2):
+    def __init__(self, dict_path, dataset_path, src_lang, tgt_lang, train=True, valid=True, test=False, max_positions=1024, max_tokens=2048, max_sentences=100, retrieval_path=None, lev_path=None, retrieval_path_valid=None, lev_path_valid=None, max_lev=2, bos="<s>", eos="</s>", unk="<unk>", pad="<pad>"):
         super().__init__()
         if retrieval_path is not None:
             assert lev_path is not None
             loader_from_path = load_data_iter_and_lev_from_path
             if train:
-                self.train, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "train", src_lang, tgt_lang, retrieval_path, lev_path, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences, max_lev=max_lev)
+                self.train, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "train", src_lang, tgt_lang, retrieval_path, lev_path, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences, max_lev=max_lev, bos=bos, eos=eos, unk=unk, pad=pad)
             else:
                 self.train = None
             if valid:
-                self.valid, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "valid", src_lang, tgt_lang, retrieval_path_valid, lev_path_valid, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences, max_lev=max_lev)
+                self.valid, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "valid", src_lang, tgt_lang, retrieval_path_valid, lev_path_valid, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences, max_lev=max_lev, bos=bos, eos=eos, unk=unk, pad=pad)
             else:
                 self.valid = None
             if test:
-                self.test, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "test", src_lang, tgt_lang, retrieval_path, lev_path, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences, max_lev=max_lev)
+                self.test, self.dict = load_data_iter_and_lev_from_path(dataset_path, dict_path, "test", src_lang, tgt_lang, retrieval_path, lev_path, max_positions=max_positions, max_tokens=max_tokens, max_sentences=max_sentences, max_lev=max_lev, bos=bos, eos=eos, unk=unk, pad=pad)
             else:
                 self.test = None
         else:

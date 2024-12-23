@@ -1,6 +1,7 @@
 """
 Trainee is a pl.LightningModule that computes the loss so it is compatible with Trainer.
 """
+import sys
 import warnings
 from functools import partial
 import re
@@ -15,18 +16,17 @@ from torch.optim import AdamW
 import pytorch_lightning as pl
 from transformers import BertModel
 # from clir.models import BertWithCustomEmbedding
+from clir.models import LABSEModule
 
 from ..data.loading import get_pretrained
 from ..data.data import ContrastiveDataset
-from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss, MSELevenshteinLoss
+from .optim import LinearLRWithWarmup, InverseSqrtLRWithWarmup, LabelSmoothingLoss, MSELevenshteinLoss, AdaptiveMarginRankLoss
 from ..models import BOWModule
 from .metrics import *
 
 
 class BiEncoder(pl.LightningModule):
     """    
-    The training objective is to minimize the negative log-likelihood of the similarities (dot product)
-    between the questions and the passages embeddings, as described in [3]_.
     """
     def __init__(
         self,
@@ -44,6 +44,7 @@ class BiEncoder(pl.LightningModule):
         bow_lr=1e-3,
         bow_multiplicator=1.0,
         lev_train=False,
+        lev_loss_type="mse",
         divide_in_k=False,
         **kwargs):
         super().__init__(*args, **kwargs)
@@ -67,6 +68,7 @@ class BiEncoder(pl.LightningModule):
         # default to symmetric encoders
         # init encoders
         self.pad_token_id = pad_token_id
+        self.model_name_or_path = model_name_or_path
         self.src_model, config = get_pretrained(
             pretrained_model_name_or_path=model_name_or_path,
             vocab_size=vocab_size,
@@ -77,18 +79,22 @@ class BiEncoder(pl.LightningModule):
 
         self.second_stage = lev_train
         self.divide_in_k = divide_in_k
+        self.lev_loss_type = lev_loss_type
         # loss and metrics
         if self.second_stage: # Second stage Training
-            # self.num_sim = num_sim
             self.max_tokens = 1
-            self.lev_loss = MSELevenshteinLoss()
+            if lev_loss_type == "rank":
+                self.lev_loss = AdaptiveMarginRankLoss(sigma=0.5)
+            else:
+                self.lev_loss = MSELevenshteinLoss(loss_type=lev_loss_type)
             self.param_groups = self.parameters()
             self.param_groups = [
                 {"params": self.lev_loss.parameters(), "lr": temp_lr},
                 {"params": self.src_model.parameters()},
             ]
-            self.metrics = MetricCollection([InBatchAccuracyContrastive()])
+            self.metrics = MetricCollection([InBatchNDCG()])
         else: # First Stage Training
+            self.max_tokens = 1
             self.log_softmax = nn.LogSoftmax(1)
             if self.label_smoothing < 1e-4:
                 self.loss_fct = nn.NLLLoss(reduction='mean')
@@ -143,7 +149,9 @@ class BiEncoder(pl.LightningModule):
         input: dict
         """
         # embed questions and contexts
-        src_out = self.src_model(**input["src"]).last_hidden_state[:, 0, :]
+        src_out = self.src_model(**input["src"])
+        if self.model_name_or_path not in ["labse"]:
+            src_out = src_out.last_hidden_state[:, 0, :]
         self.max_tokens = max(self.max_tokens, input["src"]["input_ids"].shape[0] * input["src"]["input_ids"].shape[1])
         if self.second_stage and (
             self.divide_in_k or (
@@ -164,12 +172,18 @@ class BiEncoder(pl.LightningModule):
             # for tgt in tgt_list:
             #     print(">> tgt", tgt.shape)
             tgt_out = [
-                self.tgt_model(toks, toks.ne(self.pad_token_id)).last_hidden_state[:, 0, :]
+                self.tgt_model(toks, toks.ne(self.pad_token_id))
                 for toks in tgt_list
             ]
+            if self.model_name_or_path not in ["labse"]:
+                tgt_out = [
+                   x.last_hidden_state[:, 0, :] for x in tgt_out
+                ]
             tgt_out = ContrastiveDataset.reconsitute_from_k(tgt_out, sorted_idx)
         else:
-            tgt_out = self.tgt_model(**input["tgt"]).last_hidden_state[:, 0, :]
+            tgt_out = self.tgt_model(**input["tgt"])
+            if self.model_name_or_path not in ["labse"]:
+                tgt_out = tgt_out.last_hidden_state[:, 0, :]
         if self.normalize:
             return dict(
                 src=nn.functional.normalize(src_out),
@@ -273,7 +287,7 @@ class BiEncoder(pl.LightningModule):
             self.log("train/bow_loss_tgt_src", outputs['bow_tgt_src']['loss'], batch_size=bsz, sync_dist=True)
         if self.normalize and not self.second_stage:
             self.log("train/temperature", self.temp.data, on_step=True)
-        if self.second_stage:
+        if self.second_stage and self.lev_loss_type in ["mse", "mae"]:
             self.log("alpha", self.lev_loss.get_normalized_alpha(), on_step=True, batch_size=1, on_epoch=False, sync_dist=False)
             self.log("beta", self.lev_loss.get_normalized_beta(), on_step=True, batch_size=1, on_epoch=False, sync_dist=False)
         return outputs

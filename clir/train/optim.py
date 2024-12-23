@@ -87,7 +87,8 @@ class MultiNLLLoss(nn.Module):
         else:
             smooth_loss = 0
         masked_logprobs = logprobs.masked_fill(~target_mask, 0)
-        loss = -(masked_logprobs.sum(-1) / target_mask.sum(-1)).mean()
+        no_empty = target_mask.sum(-1) > 0
+        loss = -(masked_logprobs[no_empty].sum(-1) / target_mask[no_empty].sum(-1)).mean()
         return self.ls * smooth_loss + (1.0 - self.ls) * loss
         # else:
         #     if self.reduction == "mean":
@@ -95,7 +96,7 @@ class MultiNLLLoss(nn.Module):
         #     else:
         #         return -logprobs[target_mask].sum()
 
-class MSELevenshteinLoss_(nn.Module):
+class MSELevenshteinLoss_old(nn.Module):
     def __init__(self, alpha=0.6, beta=-1.0):
         super(MSELevenshteinLoss, self).__init__()
         self.alpha = nn.parameter.Parameter(torch.tensor(alpha, dtype=torch.float32))
@@ -127,11 +128,14 @@ class MSELevenshteinLoss_(nn.Module):
         return self.mse(self.get_pseudo_lev(similarities).view(-1), levs.view(-1))
 
 class MSELevenshteinLoss(nn.Module):
-    def __init__(self, alpha=8.0, beta=-7.0):
+    def __init__(self, alpha=8.0, beta=-7.0, loss_type="mse"):
         super(MSELevenshteinLoss, self).__init__()
         self.alpha = nn.parameter.Parameter(torch.tensor(alpha, dtype=torch.float32))
         self.beta = nn.parameter.Parameter(torch.tensor(beta, dtype=torch.float32))
-        self.mse = nn.MSELoss()
+        if loss_type == "mae":
+            self._loss = nn.L1Loss()
+        else:
+            self._loss = nn.MSELoss()
 
     def get_normalized_alpha(self):
         return self.alpha.detach()
@@ -140,30 +144,31 @@ class MSELevenshteinLoss(nn.Module):
         return self.beta.detach()
 
     def get_pseudo_lev(self, similarities):
-        # print(self.alpha, self.beta)
-        # print("sims\n", similarities)
-        # print(torch.atanh(similarities))
-        # print(torch.atanh(similarities).clamp(-5, 5))
-        # print(torch.nn.functional.sigmoid(
-        #     self.alpha * torch.atanh(similarities)
-        #     - self.beta
-        # ))
         similarities = similarities.clamp(-0.99, 0.99)
         x = (self.alpha * torch.log((1 - similarities) / (1 + similarities)) / 2 - self.beta).clamp(-80, 80)
 
-        # with torch.no_grad():
-        #     print("sims\n", similarities)
-        #     print("ratio\n", ((1 - similarities) / (1 + similarities)))
-        #     print("ratio pow\n", ((1 - similarities) / (1 + similarities)) ** (self.alpha / 2))
-        #     print("denom\n", torch.exp(-self.beta) * ((1 - similarities) / (1 + similarities)) ** (self.alpha / 2))
         return 1 / (1 + torch.exp(x))
-        # return 1 / (1 + torch.exp(-self.beta) * ((1 - similarities) / (1 + similarities)) ** (self.alpha / 2))
-        # return torch.nn.functional.sigmoid(
-        #     self.alpha * torch.atanh(similarities)
-        #     - self.beta
-        # )
 
     def forward(self, similarities, levs):
-        # print(self.mse(self.get_pseudo_lev(similarities).view(-1), levs.view(-1)))
-        # raise ValueError
-        return self.mse(self.get_pseudo_lev(similarities).view(-1), levs.view(-1))
+        return self._loss(self.get_pseudo_lev(similarities).view(-1), levs.view(-1))
+
+
+class AdaptiveMarginRankLoss(nn.Module):
+    def __init__(self, sigma=1.0):
+        super(AdaptiveMarginRankLoss, self).__init__()
+        self.sigma = sigma
+
+    def forward(self, similarities, levs):
+        levs = levs.view(similarities.shape)
+        rank = torch.argsort(levs, -1)
+        B, N = levs.shape
+        # print("sims", similarities.shape)
+        # print("levs", levs.shape)
+        # print("rank", rank.shape, rank.min().item(), rank.max().item())
+        C = (
+            torch.abs(
+                levs.gather(1, rank).view(B, N, 1) - levs.gather(1, rank).view(B, 1, N)
+            ) * self.sigma
+            + similarities.gather(1, rank).view(B, N, 1) - similarities.gather(1, rank).view(B, 1, N)
+        ).triu(diagonal=1).clamp(min=0)
+        return C.mean()

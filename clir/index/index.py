@@ -14,6 +14,7 @@ from tqdm import tqdm
 # from transformers import BertModel
 import numpy as np
 import gzip
+import re
 
 
 def indexerCli(data=None, checkpoint=None, side="target", model_kwargs=None, device="cpu", index_dir=None, index_name=None, **kwargs):
@@ -40,15 +41,18 @@ def indexerCli(data=None, checkpoint=None, side="target", model_kwargs=None, dev
     with torch.no_grad():
         for samples in tqdm(data_itr):
             tokens = samples["tokens"].to(device)
-            outs.append(nn.functional.normalize(model(
-                input_ids=tokens,
-                attention_mask=tokens.ne(dic.pad())
-            ).last_hidden_state[:, 0, :]).half().cpu())
+            if model_kwargs["model_name_or_path"] == "labse":
+                outs.append(nn.functional.normalize(model(
+                    input_ids=tokens,
+                    attention_mask=tokens.ne(dic.pad())
+                )).half().cpu())
+            else:
+                outs.append(nn.functional.normalize(model(
+                    input_ids=tokens,
+                    attention_mask=tokens.ne(dic.pad())
+                ).last_hidden_state[:, 0, :]).half().cpu())
             ids.append(samples["id"])
             assert len(ids[-1]) == outs[-1].shape[0], f"{len(ids[-1])} != {outs[-1].shape[0]}"
-    #         print(tokens)
-    #         break
-    # sys.exit(8)
     outs = torch.cat(outs)
     ids = torch.cat(ids)
     outs_ord = torch.empty_like(outs)
@@ -77,12 +81,16 @@ def main():
             os.path.dirname(config["data"]["data_path"]),
             args.name,
             os.path.basename(config["data"]["data_path"]))
+        config["data"]["data_path"] = re.sub("@@@", "/", config["data"]["data_path"])
+        print(">>>>", config["data"]["data_path"])
         config["index_dir"] = os.path.join(
             config["index_dir"],
             args.name)
         if not os.path.isdir(config["index_dir"]):
             os.mkdir(config["index_dir"])
-
+    # else:
+    #     config["data"]["data_path"] = re.sub("@@@", "/", config["data"]["data_path"])
+    #     config["data"]["data_path"] = re.sub("@@@", "/", config["data"]["data_path"])
     return indexerCli(**config)
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ import time
 def search(query, index, device, not_same_index, k):
     # print(not_same_index)
     # sys.exit(8)
+    print("searching...")
     if not_same_index:
         D, I = index.search(query, k + 1)
         # exclude same index match
@@ -30,6 +31,8 @@ def search(query, index, device, not_same_index, k):
         ][:, :-1]
     else:
         D, I = index.search(query, k)
+    print("...done")
+
     return D, I
 
 
@@ -52,6 +55,7 @@ def retrieve_index_to_index(index_source, index_path, device, not_same_index, k,
     # print(d_src)
     # d_src = torch.load(index_source, map_location=torch.device("cpu")).numpy()
     # d_tgt = torch.load(index_path, map_location=torch.device("cpu")).numpy()
+    print(d_src.shape, d_tgt.shape)
     t1 = time.time()
     index = faiss.IndexFlatIP(d_tgt.shape[1])
     if ivf:
@@ -160,8 +164,13 @@ def main():
         config["save_path"] = os.path.join(
             config["save_path"],
             args.name)
-        if not os.path.isdir(config["save_path"]):
-            os.mkdir(config["save_path"])
+    # print(">>>> ", os.path.isdir(config["save_path"]), config["save_path"])
+    if not os.path.isdir(config["save_path"]):
+        # if not os.path.isdir(os.path.dirname(config["save_path"])):
+        #     os.makedirs(os.path.dirname(config["save_path"]))
+        os.makedirs(config["save_path"])
+    # print(">>>> ", os.path.isdir(config["save_path"]))
+            
     return retrieverCli(**config)
 
 if __name__ == "__main__":

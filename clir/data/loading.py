@@ -12,6 +12,7 @@ import transformers
 # from clir.models import BertWithCustomEmbedding
 import torch
 from transformers import BertModel, XLMModel, XLMRobertaModel
+from ..models import LABSEModule
 
 ClassModel = BertModel
 
@@ -24,6 +25,9 @@ def get_pretrained(pretrained_model_name_or_path, **kwargs):
         config = ClassModel.config_class(**kwargs)
         model = ClassModel(config)
         print(f"Randomly initialized model:\n{model}")
+    elif pretrained_model_name_or_path == "labse":
+        model = LABSEModule()
+        config = None
     else:
         model = torch.load(pretrained_model_name_or_path)
         # model = transformers.from_pretrained(pretrained_model_name_or_path, **kwargs)

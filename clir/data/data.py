@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import numpy as np
 from fairseq.tasks.translation import load_langpair_dataset
@@ -12,9 +13,34 @@ import time
 import random
 
 
-def load_data_iter_and_lev_from_path(data_path, dict_path, split, src, tgt, retrieval_path, lev_path, max_positions=1024, max_tokens=2048, max_sentences=100, max_lev=2, random_select=False):
-    mono_dict = Dictionary.load(dict_path)
-    # print(data_path, f"{split}.{src}-{tgt}.{src}")
+def load_data_iter_and_lev_from_path(data_path, dict_path, split, src, tgt, retrieval_path, lev_path, max_positions=1024, max_tokens=2048, max_sentences=100, max_lev=2, random_select=False, bos="<s>", eos="</s>", unk="<unk>", pad="<pad>"):
+    mono_dict = Dictionary.load(dict_path, add_special_symbols=(bos is None))
+    if bos is not None and bos[:3] == "<<<":
+        bos = f"[{bos[3:-3]}]"
+        eos = f"[{eos[3:-3]}]"
+        unk = f"[{unk[3:-3]}]"
+        pad = f"[{pad[3:-3]}]"
+
+        mono_dict.bos_word, mono_dict.unk_word, mono_dict.pad_word, mono_dict.eos_word = bos, unk, pad, eos
+        # print(bos, unk, pad, eos)
+        # print(mono_dict.indices['!'])
+        mono_dict.bos_index = mono_dict.add_symbol(bos)
+        mono_dict.pad_index = mono_dict.add_symbol(pad)
+        mono_dict.eos_index = mono_dict.add_symbol(eos)
+        mono_dict.unk_index = mono_dict.add_symbol(unk)
+        remove_offset = True
+    else:
+        # bos = "<s>"
+        # eos = "</s>"
+        # unk = "<unk>"
+        # pad = "<pad>"
+        remove_offset = False
+
+
+    # print(mono_dict.bos(), mono_dict.eos(), mono_dict.unk(), mono_dict.pad())
+    # sys.exit(8)
+    # # print(data_path, f"{split}.{src}-{tgt}.{src}")
+    print(">> src dataset path:", os.path.join(data_path, f"{split}.{src}-{tgt}.{src}"))
     src_dataset = data_utils.load_indexed_dataset(
         os.path.join(data_path, f"{split}.{src}-{tgt}.{src}"),
         mono_dict,
@@ -36,7 +62,7 @@ def load_data_iter_and_lev_from_path(data_path, dict_path, split, src, tgt, retr
     levs = np.load(lev_path)[:, :max_lev].copy()
     levs = torch.from_numpy(levs).float()
     # make composite dataset
-    dataset = ContrastiveDataset(src_dataset, tgt_dataset, retrieval_ids, levs, max_length=max_positions, eos=mono_dict.eos(), pad=mono_dict.pad(), no_train=(split != "train"), random_select=random_select)
+    dataset = ContrastiveDataset(src_dataset, tgt_dataset, retrieval_ids, levs, max_length=max_positions, eos=mono_dict.eos(), pad=mono_dict.pad(), no_train=(split != "train"), random_select=random_select, remove_offset=remove_offset)
 
     return load_epoch_iter(
         dataset,
@@ -138,23 +164,30 @@ def load_epoch_iter(
 
 # class IndexerDataset(Dataset):
 class IndexerDataset(FairseqDataset):
-    def __init__(self, dataset, max_length=512, eos=2, pad=1):
+    def __init__(self, dataset, max_length=512, eos=2, pad=1, remove_offset=False, max_id=None):
         self.dataset = dataset
         self.eos = eos
         self.pad = pad
         self.max_length = max_length
+        self.max_id = max_id
         self.sizes = np.array([min(len(self.dataset[idx]), max_length) for idx in range(len(self))])
+        self.remove_offset = remove_offset
     
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, idx):
+        x = self.dataset[idx]
         if len(self.dataset[idx]) > self.max_length:
-            x = self.dataset[idx]
             x = x[:self.max_length]
-            x[-1] = self.eos
-            return dict(id=torch.tensor(idx), tokens=x)
-        return dict(id=torch.tensor(idx), tokens=self.dataset[idx])
+        if self.remove_offset:
+            x[1:] -= 4
+        else:
+            x[x >= self.max_id] = 3
+        x[-1] = self.eos
+        # print(x)
+        # sys.exit(8)
+        return dict(id=torch.tensor(idx), tokens=x)
 
     def ordered_indices(self):
         return np.argsort(self.sizes, kind="mergesort")
@@ -192,7 +225,7 @@ def collater(pad_idx, dict_list, **kwargs):
     return out
 
 class ContrastiveDataset(FairseqDataset):
-    def __init__(self, src_dataset, tgt_dataset, indices, levs, max_length=512, eos=2, pad=1, no_train=False, random_select=False):
+    def __init__(self, src_dataset, tgt_dataset, indices, levs, max_length=512, eos=2, pad=1, no_train=False, random_select=False, remove_offset=False, max_id=None):
         self.src_dataset = src_dataset
         self.tgt_dataset = tgt_dataset
         self.levs = levs
@@ -200,8 +233,10 @@ class ContrastiveDataset(FairseqDataset):
         self.eos = eos
         self.pad = pad
         self.max_length = max_length
+        self.max_id = max_id
         self.src_sizes = np.array([min(len(self.src_dataset[idx]), max_length) for idx in range(len(self))])
         self.tgt_sizes = np.array([min(len(self.tgt_dataset[idx]), max_length) for idx in range(len(self))])
+        self.remove_offset = remove_offset
     
     def __len__(self):
         return len(self.src_dataset)
@@ -210,7 +245,11 @@ class ContrastiveDataset(FairseqDataset):
         x = self.src_dataset[idx]
         if len(x) > self.max_length:
             x = x[:self.max_length]
-            x[-1] = self.eos
+        if self.remove_offset:
+            x[1:] -= 4
+        else:
+            x[x >= self.max_id] = 3
+        x[-1] = self.eos
         ys = list()
         levs_at_ids = list()
         for i in range(self.levs.shape[1]):
@@ -218,10 +257,13 @@ class ContrastiveDataset(FairseqDataset):
             y = self.tgt_dataset[ret_idx]
             if len(y) > self.max_length:
                 y = y[:self.max_length]
-                y[-1] = self.eos
+            if self.remove_offset:
+                y[1:] -= 4
+            y[-1] = self.eos
             ys.append(y)
             levs_at_ids.append(self.levs[idx, i])
         levs_at_ids = torch.tensor(levs_at_ids)
+        # print(dict(id=torch.tensor(idx), net_input=dict(src_tokens=x), target=ys, levs=levs_at_ids))
         return dict(id=torch.tensor(idx), net_input=dict(src_tokens=x), target=ys, levs=levs_at_ids)
 
     def ordered_indices(self):
@@ -250,6 +292,7 @@ class ContrastiveDataset(FairseqDataset):
         ], self.pad, **kwargs)
         out["levs"] = torch.cat([dic["levs"] for dic in samples])
         out["nsentences"] = len(samples)
+
         return out
 
 
@@ -326,15 +369,39 @@ class ContrastiveDataset(FairseqDataset):
         return out
 
 
-def load_monolingual_corpus(data_path=None, dict_path=None, batch_size=None):
-    mono_dict = Dictionary.load(dict_path)
+def load_monolingual_corpus(data_path=None, dict_path=None, batch_size=None, bos="<s>", eos="</s>", unk="<unk>", pad="<pad>"):
+    mono_dict = Dictionary.load(dict_path, add_special_symbols=(bos is None))
+    if bos is not None and bos[:3] == "<<<":
+        bos = f"[{bos[3:-3]}]"
+        eos = f"[{eos[3:-3]}]"
+        unk = f"[{unk[3:-3]}]"
+        pad = f"[{pad[3:-3]}]"
+
+        mono_dict.bos_word, mono_dict.unk_word, mono_dict.pad_word, mono_dict.eos_word = bos, unk, pad, eos
+        # print(bos, unk, pad, eos)
+        # print(mono_dict.indices['!'])
+        mono_dict.bos_index = mono_dict.add_symbol(bos)
+        mono_dict.pad_index = mono_dict.add_symbol(pad)
+        mono_dict.eos_index = mono_dict.add_symbol(eos)
+        mono_dict.unk_index = mono_dict.add_symbol(unk)
+        remove_offset = True
+    else:
+        # bos = "<s>"
+        # eos = "</s>"
+        # unk = "<unk>"
+        # pad = "<pad>"
+        remove_offset = False
+
+    # print(mono_dict.bos(), mono_dict.eos(), mono_dict.unk(), mono_dict.pad())
+
     dataset = data_utils.load_indexed_dataset(
         data_path,
         mono_dict,
         "mmap",
         combine=True,
     )
-    dataset = IndexerDataset(PrependTokenDataset(dataset, mono_dict.bos()), max_length=512, eos=mono_dict.eos())
+
+    dataset = IndexerDataset(PrependTokenDataset(dataset, mono_dict.bos()), max_length=512, eos=mono_dict.eos(), pad=mono_dict.pad(), remove_offset=remove_offset, max_id=len(mono_dict)-4)
     return load_epoch_iter(
         dataset,
         seed=0,

@@ -14,8 +14,9 @@ def get_ranking(log_probs):
     rankings.scatter_(1, sorted_index, torch.arange(bsz, device=sorted_index.device).view(1, bsz).expand_as(sorted_index))
     diag = torch.diagonal(rankings)
     return diag
-
+    
 class InBatchAccuracy(Metric):
+    full_state_update: bool = True
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 
@@ -31,6 +32,7 @@ class InBatchAccuracy(Metric):
         return self.hits_at_1 / self.total
 
 class InBatchMRR(Metric):
+    full_state_update: bool = True
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 
@@ -46,6 +48,7 @@ class InBatchMRR(Metric):
         return self.mrr / self.total
 
 class BOWRecall(Metric):
+    full_state_update: bool = True
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 
@@ -62,6 +65,7 @@ class BOWRecall(Metric):
         return self.hits / self.total
 
 class InBatchAccuracyContrastive(Metric):
+    full_state_update: bool = True
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 
@@ -78,3 +82,34 @@ class InBatchAccuracyContrastive(Metric):
 
     def compute(self):
         return self.hits_at_rank / self.total
+
+class InBatchNDCG(Metric):
+    full_state_update: bool = True
+    def __init__(self, dist_sync_on_step=False):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.add_state("ndcg", default=torch.tensor(0, dtype=torch.float32), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
+
+    def update(self, similarities: torch.Tensor, levs: torch.Tensor):
+        bsz, k = similarities.shape
+        ## normalize
+        similarities = (similarities + 1) / 2
+        true_ranking = levs.argsort(-1, descending=True)
+        norm = similarities.sort(-1, descending=True)[0]
+        ndcg = (
+            (
+                similarities.gather(1, true_ranking) / 
+                torch.log2(2 + torch.arange(k, dtype=similarities.dtype, device=similarities.device)).view(1, -1)
+            ).sum(-1) / 
+            (
+                norm / 
+                torch.log2(2 + torch.arange(k, dtype=similarities.dtype, device=similarities.device)).view(1, -1)
+            ).sum(-1)
+        ).sum()
+        assert (ndcg / bsz).item() <= 1 and (ndcg / bsz).item() >= 0, f"{similarities.gather(1, true_ranking)}\n vs \n {norm}\n log = {torch.log2(2 + torch.arange(k, dtype=similarities.dtype, device=similarities.device)).view(1, -1)} \n bsz = {bsz}"
+        self.ndcg += ndcg
+        self.total += bsz
+
+    def compute(self):
+        return self.ndcg / self.total

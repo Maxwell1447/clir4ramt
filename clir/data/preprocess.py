@@ -12,6 +12,7 @@ def getargs():
     parser.add_argument("--data-dir", required=True, help="data directory")
     parser.add_argument("--sub-dir-names", required=True, help="data directory")
     parser.add_argument("--retrieval-dir", required=True, help="retrieval directory")
+    parser.add_argument("--domain-sub-folder", action="store_true", help="are sub domains in sub folders?")
     parser.add_argument("--retrieval-type", default="train-full-k=5")
     parser.add_argument("--rank", type=int, default=4, help="max rank of the match to score")
     parser.add_argument("--lang", default="fr", help="language id extension")
@@ -36,6 +37,8 @@ def precompute_lev(data_path, retrieval_path, output_path, k=None):
                 tok_tgt = tokenizer.tokenize(tgt_sents[i].rstrip())[0]
                 tok_ret = tokenizer.tokenize(tgt_sents[ids[i][r]].rstrip())[0]
                 levs[i, r] = lev(tok_tgt, tok_ret)
+                ###### COMMENT
+                # assert levs[i, r] == lev(tok_ret, tok_tgt)
     np.save(output_path, levs)
 
 def precompute_lev_external(data_path, external_data_path, retrieval_path, output_path, k=None):
@@ -69,23 +72,29 @@ def concatenate_values(retrieved_path, filename, names, subname="indices", need_
         xs.append(x)
         offset += len(x)
     xs = np.concatenate(xs)
-    np.save(os.path.join(retrieved_path, f"{subname}-cat-{filename}"), xs)
+    np.save(os.path.join(retrieved_path, f"{subname}-{filename}"), xs)
 
 
 if __name__ == "__main__":
     args = getargs()
 
-    concatenate_values(args.retrieval_dir, f"{args.retrieval_type}.npy", args.sub_dir_names.split(','), subname="indices", need_offset=True)
+    # concatenate_values(args.retrieval_dir, f"{args.retrieval_type}.npy", args.sub_dir_names.split(','), subname="indices", need_offset=True)
 
-    # for name in args.sub_dir_names.split(','):
-    #     retrieval_path = os.path.join(args.retrieval_dir, name, f"indices-{args.retrieval_type}.npy")
-    #     output_path = os.path.join(args.retrieval_dir, name, f"lev-{args.retrieval_type}.npy")
-    #     data_path = os.path.join(args.data_dir, f"{name}.train.{args.lang}")
-    #     if args.split != "train":
-    #         external_data_path = os.path.join(args.data_dir, f"{name}.{args.split}.{args.lang}")
-    #         precompute_lev_external(data_path, external_data_path, retrieval_path, output_path, k=args.rank)
-    #     else:
-    #         precompute_lev(data_path, retrieval_path, output_path, k=args.rank)
+    for name in args.sub_dir_names.split(','):
+        retrieval_path = os.path.join(args.retrieval_dir, name, f"indices-{args.retrieval_type}.npy")
+        output_path = os.path.join(args.retrieval_dir, name, f"lev-{args.retrieval_type}.npy")
+        if args.domain_sub_folder:
+            data_path = os.path.join(args.data_dir, f"{name}/train.{args.lang}")
+        else:
+            data_path = os.path.join(args.data_dir, f"{name}.train.{args.lang}")
+        if args.split != "train":
+            if args.domain_sub_folder:
+                external_data_path = os.path.join(args.data_dir, f"{name}/{args.split}.{args.lang}")
+            else:
+                external_data_path = os.path.join(args.data_dir, f"{name}.{args.split}.{args.lang}")
+            precompute_lev_external(data_path, external_data_path, retrieval_path, output_path, k=args.rank)
+        else:
+            precompute_lev(data_path, retrieval_path, output_path, k=args.rank)
 
-    # concatenate_values(args.retrieval_dir, f"{args.retrieval_type}.npy", args.sub_dir_names.split(','), subname="lev", need_offset=False)
-    # concatenate_values(args.retrieval_dir, f"{args.retrieval_type}.npy", args.sub_dir_names.split(','), subname="scores", need_offset=False)
+    concatenate_values(args.retrieval_dir, f"{args.retrieval_type}.npy", args.sub_dir_names.split(','), subname="lev", need_offset=False)
+    concatenate_values(args.retrieval_dir, f"{args.retrieval_type}.npy", args.sub_dir_names.split(','), subname="scores", need_offset=False)
