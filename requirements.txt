@@ -4,4 +4,3 @@ faiss-gpu>=1.7.1
 pytorch-lightning[extra]>=1.7.7
 torchmetrics
 torchtext
-fairseq

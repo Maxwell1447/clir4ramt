@@ -13,3 +13,5 @@ model_kwargs:
   normalize: true
   bow_loss: true
   bow_loss_factor: 1
+  lev_train: false
+  lev_loss_type: rank
