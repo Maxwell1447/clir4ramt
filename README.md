@@ -56,4 +56,3 @@ python -m clir.index.index --config experiments/configs/{config}.yaml
 python -m clir.retrieve.retrieve --config experiments/configs/{config}.yaml
 ```
 
-## retrieval
