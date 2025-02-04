@@ -1,4 +1,6 @@
-# Cross-Lingual Information Retrieval for Neural Machien Translation
+# Improving Retrieval-Augmented Neural Machine Translation with Monolingual Data​
+
+CLIR4NMT: Cross-Lingual Information Retrieval for Retrieval Augmented Machine Translation
 
 ## installation requirements
 
