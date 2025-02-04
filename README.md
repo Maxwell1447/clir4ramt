@@ -4,10 +4,10 @@ CLIR4NMT: Cross-Lingual Information Retrieval for Retrieval Augmented Machine Tr
 
 ## installation requirements
 
-Fairseq requires to be installed and is used for data handling.
+An adapted version of Fairseq is required to be installed and is used for efficient data handling.
 
 ```bash
-git clone https://github.com/pytorch/fairseq
+git clone https://github.com/Maxwell1447/fairseq-clir4ramt
 cd fairseq
 pip install .
 python setup.py build_ext --inplace
@@ -22,6 +22,20 @@ pip install .
 
 ```bash
 conda install -c pytorch -c nvidia faiss-gpu=1.8.0
+```
+
+## data preprocessing
+
+Training data must be processed with command fairseq-preprocess applied on already tokenized data, with the following template:
+```bash
+fairseq-preprocess \
+--source-lang $l1 --target-lang $l2 \
+--srcdict $dict \
+--joined-dictionary \
+--trainpref  $DATA_TOK/train \
+--validpref $DATA_TOK/valid \
+--destdir $DATA_BIN/ \
+--workers 5
 ```
 
 ## training
